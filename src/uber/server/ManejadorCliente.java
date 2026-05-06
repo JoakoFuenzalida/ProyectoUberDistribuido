@@ -34,7 +34,14 @@ public class ManejadorCliente implements Runnable {
 
                 case "CALIFICAR":
                     int nota = (Integer) peticion.getPayload();
-                    gestor.calificar(peticion.getIdUsuario(), nota);
+                    String conductorEvaluado = peticion.getIdUsuario(); // El cliente manda el nombre del conductor aquí
+
+                    // 1. Guardamos la nota
+                    gestor.calificar(conductorEvaluado, nota);
+
+                    // 2. ¡EL ARREGLO! Liberamos al conductor para que otro lo pueda usar
+                    gestor.liberarConductor(conductorEvaluado);
+
                     MensajeUber respuestaCalificacion = new MensajeUber("RESPUESTA_CALIFICAR", "SERVIDOR", "Calificación exitosa");
                     out.writeObject(respuestaCalificacion);
                     break;

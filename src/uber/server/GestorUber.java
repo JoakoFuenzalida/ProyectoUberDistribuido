@@ -44,4 +44,9 @@ public class GestorUber {
 
         System.out.println("[GESTOR] " + idUsuario + " recibió una nota de " + nota + ". Promedio actual: " + promedio);
     }
+    // Agrega este metodo en GestorUber
+    public synchronized void liberarConductor(String idConductor) {
+        conductoresDisponibles.add(idConductor);
+        System.out.println("[GESTOR] El conductor " + idConductor + " vuelve a estar disponible.");
+    }
 }
