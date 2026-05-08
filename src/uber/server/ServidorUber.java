@@ -7,25 +7,67 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class ServidorUber {
+
     private static final int PUERTO = 5000;
 
     public static void main(String[] args) {
-        GestorUber gestor = new GestorUber();
-        // Pool de hilos para atender concurrentemente
-        ExecutorService pool = Executors.newFixedThreadPool(10);
 
-        try (ServerSocket serverSocket = new ServerSocket(PUERTO)) {
-            System.out.println("=== SERVIDOR UBER INICIADO EN PUERTO " + PUERTO + " ===");
+        GestorUber gestor = new GestorUber();
+
+        ExecutorService pool =
+                Executors.newFixedThreadPool(10);
+
+        try (ServerSocket serverSocket =
+                     new ServerSocket(PUERTO)) {
+
+            System.out.println(
+                    "====================================="
+            );
+
+            System.out.println(
+                    " SERVIDOR UBER DISTRIBUIDO INICIADO "
+            );
+
+            System.out.println(
+                    " Puerto: " + PUERTO
+            );
+
+            System.out.println(
+                    "====================================="
+            );
 
             while (true) {
-                Socket socketCliente = serverSocket.accept();
-                System.out.println("[SERVIDOR] Nueva conexión desde: " + socketCliente.getInetAddress());
 
-                // Pasamos la conexión a un hilo independiente
-                pool.execute(new ManejadorCliente(socketCliente, gestor));
+                Socket socketCliente =
+                        serverSocket.accept();
+
+                System.out.println(
+                        "[SERVIDOR] Nueva conexión desde: "
+                                + socketCliente.getInetAddress()
+                );
+
+                pool.execute(
+                        new ManejadorCliente(
+                                socketCliente,
+                                gestor
+                        )
+                );
             }
+
         } catch (IOException e) {
-            System.err.println("[SERVIDOR] Error crítico al iniciar: " + e.getMessage());
+
+            System.err.println(
+                    "[SERVIDOR] Error crítico: "
+                            + e.getMessage()
+            );
+
+        } finally {
+
+            pool.shutdown();
+
+            System.out.println(
+                    "[SERVIDOR] Pool de hilos cerrado."
+            );
         }
     }
 }

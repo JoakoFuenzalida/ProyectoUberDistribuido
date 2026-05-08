@@ -1,52 +1,231 @@
 package uber.server;
 
+import uber.shared.*;
+
+import java.time.Duration;
+import java.time.LocalDateTime;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
 public class GestorUber {
+
     // Recursos compartidos
     private List<String> conductoresDisponibles;
-    private Map<String, List<Integer>> calificaciones;
+
+    // Viajes almacenados
+    private Map<Integer, Viaje> viajes;
+
+    // Generador automático de IDs
+    private AtomicInteger generadorId;
+
+    // Scheduler para viajes programados
+    private ScheduledExecutorService scheduler;
 
     public GestorUber() {
-        conductoresDisponibles = new ArrayList<>();
-        calificaciones = new HashMap<>();
 
-        // Simulamos algunos conductores en la base de datos
+        conductoresDisponibles = new ArrayList<>();
+
+        viajes = new HashMap<>();
+
+        generadorId = new AtomicInteger(1);
+
+        scheduler =
+                Executors.newScheduledThreadPool(2);
+
+        // Conductores simulados
         conductoresDisponibles.add("Conductor_Juan");
         conductoresDisponibles.add("Conductor_Maria");
         conductoresDisponibles.add("Conductor_Pedro");
     }
 
-    // El uso de 'synchronized' protege este recurso crítico
-    public synchronized String solicitarViaje(String idPasajero) {
+    // =========================================
+    // SOLICITAR VIAJE INMEDIATO
+    // =========================================
+
+    public synchronized Viaje solicitarViaje(
+            String pasajero,
+            SolicitudViaje solicitud) {
+
+        int id = generadorId.getAndIncrement();
+
+        Viaje viaje = new Viaje(
+                id,
+                pasajero,
+                solicitud.getOrigen(),
+                solicitud.getDestino(),
+                false,
+                null
+        );
+
         if (conductoresDisponibles.isEmpty()) {
-            return "SIN_CONDUCTORES";
+
+            viaje.setEstado(EstadoViaje.PENDIENTE);
+
+            viajes.put(id, viaje);
+
+            System.out.println(
+                    "[GESTOR] No hay conductores disponibles."
+            );
+
+            return viaje;
         }
-        // Retiramos al primer conductor de la lista para asignarlo
-        String conductorAsignado = conductoresDisponibles.remove(0);
-        System.out.println("[GESTOR] Viaje asignado: Pasajero " + idPasajero + " viaja con " + conductorAsignado);
-        return conductorAsignado;
+
+        String conductor =
+                conductoresDisponibles.remove(0);
+
+        viaje.setConductor(conductor);
+
+        viaje.setEstado(EstadoViaje.ASIGNADO);
+
+        viajes.put(id, viaje);
+
+        System.out.println(
+                "[GESTOR] Viaje inmediato asignado: "
+                        + viaje
+        );
+
+        return viaje;
     }
 
-    // Metodo para la Función 2: Calificación post-viaje
-    public synchronized void calificar(String idUsuario, int nota) {
-        calificaciones.putIfAbsent(idUsuario, new ArrayList<>());
-        calificaciones.get(idUsuario).add(nota);
+    // =========================================
+    // PROGRAMAR VIAJE
+    // =========================================
 
-        // Calculamos el promedio
-        double promedio = calificaciones.get(idUsuario).stream()
-                .mapToInt(Integer::intValue)
-                .average()
-                .orElse(0.0);
+    public synchronized Viaje programarViaje(
+            String pasajero,
+            SolicitudViaje solicitud) {
 
-        System.out.println("[GESTOR] " + idUsuario + " recibió una nota de " + nota + ". Promedio actual: " + promedio);
+        int id = generadorId.getAndIncrement();
+
+        Viaje viaje = new Viaje(
+                id,
+                pasajero,
+                solicitud.getOrigen(),
+                solicitud.getDestino(),
+                true,
+                solicitud.getFechaProgramada()
+        );
+
+        viaje.setEstado(EstadoViaje.PROGRAMADO);
+
+        viajes.put(id, viaje);
+
+        long delay = Duration.between(
+                LocalDateTime.now(),
+                solicitud.getFechaProgramada()
+        ).toSeconds();
+
+        if (delay < 0) {
+            delay = 0;
+        }
+
+        scheduler.schedule(
+                () -> ejecutarViajeProgramado(id),
+                delay,
+                TimeUnit.SECONDS
+        );
+
+        System.out.println(
+                "[SCHEDULER] Viaje programado exitosamente: "
+                        + viaje
+        );
+
+        return viaje;
     }
-    // Agrega este metodo en GestorUber
-    public synchronized void liberarConductor(String idConductor) {
-        conductoresDisponibles.add(idConductor);
-        System.out.println("[GESTOR] El conductor " + idConductor + " vuelve a estar disponible.");
+
+    // =========================================
+    // EJECUTAR VIAJE PROGRAMADO
+    // =========================================
+
+    private synchronized void ejecutarViajeProgramado(
+            int idViaje) {
+
+        Viaje viaje = viajes.get(idViaje);
+
+        if (viaje == null) {
+            return;
+        }
+
+        if (conductoresDisponibles.isEmpty()) {
+
+            viaje.setEstado(EstadoViaje.PENDIENTE);
+
+            System.out.println(
+                    "[SCHEDULER] Sin conductores disponibles para viaje "
+                            + idViaje
+            );
+
+            return;
+        }
+
+        String conductor =
+                conductoresDisponibles.remove(0);
+
+        viaje.setConductor(conductor);
+
+        viaje.setEstado(EstadoViaje.ASIGNADO);
+
+        System.out.println(
+                "[SCHEDULER] Viaje programado ejecutado: "
+                        + viaje
+        );
+    }
+
+    // =========================================
+    // CONSULTAR VIAJES
+    // =========================================
+
+    public synchronized List<Viaje> consultarViajes(
+            String pasajero) {
+
+        List<Viaje> resultado =
+                new ArrayList<>();
+
+        for (Viaje viaje : viajes.values()) {
+
+            if (viaje.getPasajero()
+                    .equals(pasajero)) {
+
+                resultado.add(viaje);
+            }
+        }
+
+        return resultado;
+    }
+
+    // =========================================
+    // FINALIZAR VIAJE
+    // =========================================
+
+    public synchronized void finalizarViaje(
+            int idViaje) {
+
+        Viaje viaje = viajes.get(idViaje);
+
+        if (viaje == null) {
+            return;
+        }
+
+        viaje.setEstado(EstadoViaje.FINALIZADO);
+
+        if (viaje.getConductor() != null) {
+
+            conductoresDisponibles.add(
+                    viaje.getConductor()
+            );
+        }
+
+        System.out.println(
+                "[GESTOR] Viaje finalizado: "
+                        + viaje
+        );
     }
 }

@@ -1,118 +1,242 @@
 package uber.client;
 
-import uber.shared.MensajeUber;
+import uber.shared.*;
+
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Scanner;
 
 public class ClienteUber {
+
     private static final String IP_SERVIDOR = "127.0.0.1";
     private static final int PUERTO = 5000;
 
     public static void main(String[] args) {
+
         Scanner scanner = new Scanner(System.in);
-        System.out.println("======================================");
-        System.out.println("       🚗 BIENVENIDO A UBER 🚗       ");
-        System.out.println("======================================");
-        System.out.print("➤ Ingrese su nombre de usuario: ");
-        String idUsuario = scanner.nextLine();
 
-        System.out.println("\nIniciando sesión... conectado al servidor central.");
+        System.out.println("=================================");
+        System.out.println("         CLIENTE UBER           ");
+        System.out.println("=================================");
 
-        // VARIABLES DE ESTADO (La magia para que sea realista)
-        boolean enViaje = false;
-        String conductorAsignado = null;
+        System.out.print("Ingrese nombre de usuario: ");
+
+        String usuario = scanner.nextLine();
 
         while (true) {
-            System.out.println("\n--------------------------------------");
-            System.out.println(" Hola, " + idUsuario + ". ¿Qué deseas hacer?");
 
-            // EL MENÚ CAMBIA SEGÚN EL ESTADO DEL CLIENTE
-            if (!enViaje) {
-                System.out.println(" 1. 📍 Solicitar un Viaje");
-                System.out.println(" 2. 🚪 Salir");
-            } else {
-                System.out.println(" 1. ⭐ Terminar viaje y Calificar a " + conductorAsignado);
-            }
-            System.out.println("--------------------------------------");
-            System.out.print("➤ Seleccione una opción: ");
+            System.out.println("\n--------- MENÚ ---------");
+            System.out.println("1. Solicitar viaje");
+            System.out.println("2. Programar viaje");
+            System.out.println("3. Consultar viajes");
+            System.out.println("4. Finalizar viaje");
+            System.out.println("5. Salir");
+
+            System.out.print("Seleccione opción: ");
 
             String opcion = scanner.nextLine();
-            MensajeUber peticion = null;
 
-            if (!enViaje) {
-                // ACCIONES CUANDO ESTÁ LIBRE
-                if (opcion.equals("2")) {
-                    System.out.println("Cerrando sesión. ¡Hasta pronto!");
+            switch (opcion) {
+
+                case "1":
+
+                    System.out.print("Origen: ");
+                    String origen = scanner.nextLine();
+
+                    System.out.print("Destino: ");
+                    String destino = scanner.nextLine();
+
+                    SolicitudViaje solicitud =
+                            new SolicitudViaje(
+                                    origen,
+                                    destino,
+                                    false,
+                                    null
+                            );
+
+                    MensajeUber respuesta =
+                            enviarPeticion(
+                                    new MensajeUber(
+                                            TipoMensaje.SOLICITAR_VIAJE,
+                                            usuario,
+                                            solicitud
+                                    )
+                            );
+
+                    System.out.println(
+                            "\n=== RESPUESTA DEL SERVIDOR ==="
+                    );
+
+                    System.out.println(
+                            respuesta.getPayload()
+                    );
+
                     break;
-                } else if (opcion.equals("1")) {
-                    peticion = new MensajeUber("SOLICITAR_VIAJE", idUsuario, null);
-                    System.out.println("\n📡 Buscando conductores cercanos...");
-                    simularCarga();
 
-                    String respuestaSrv = enviarPeticion(peticion);
+                case "2":
 
-                    // Si el servidor encontró conductor, cambiamos el estado
-                    if (!respuestaSrv.equals("SIN_CONDUCTORES") && !respuestaSrv.startsWith("ERROR")) {
-                        enViaje = true;
-                        conductorAsignado = respuestaSrv;
-                        System.out.println("✅ [UBER]: Tu conductor es " + conductorAsignado + ". ¡El viaje ha comenzado!");
+                    System.out.print("Origen: ");
+                    String origenProgramado =
+                            scanner.nextLine();
+
+                    System.out.print("Destino: ");
+                    String destinoProgramado =
+                            scanner.nextLine();
+
+                    System.out.print(
+                            "¿Cuántos segundos desde ahora desea programarlo?: "
+                    );
+
+                    int segundos =
+                            Integer.parseInt(scanner.nextLine());
+
+                    LocalDateTime fecha =
+                            LocalDateTime.now()
+                                    .plusSeconds(segundos);
+
+                    SolicitudViaje solicitudProgramada =
+                            new SolicitudViaje(
+                                    origenProgramado,
+                                    destinoProgramado,
+                                    true,
+                                    fecha
+                            );
+
+                    MensajeUber respuestaProgramada =
+                            enviarPeticion(
+                                    new MensajeUber(
+                                            TipoMensaje.PROGRAMAR_VIAJE,
+                                            usuario,
+                                            solicitudProgramada
+                                    )
+                            );
+
+                    System.out.println(
+                            "\n=== VIAJE PROGRAMADO ==="
+                    );
+
+                    System.out.println(
+                            respuestaProgramada.getPayload()
+                    );
+
+                    break;
+
+                case "3":
+
+                    MensajeUber respuestaConsulta =
+                            enviarPeticion(
+                                    new MensajeUber(
+                                            TipoMensaje.CONSULTAR_VIAJES,
+                                            usuario,
+                                            null
+                                    )
+                            );
+
+                    @SuppressWarnings("unchecked")
+                    List<Viaje> viajes =
+                            (List<Viaje>) respuestaConsulta.getPayload();
+
+                    System.out.println(
+                            "\n=== LISTA DE VIAJES ==="
+                    );
+
+                    if (viajes.isEmpty()) {
+
+                        System.out.println(
+                                "No existen viajes registrados."
+                        );
+
                     } else {
-                        System.out.println("❌ [UBER]: No hay conductores disponibles en este momento.");
-                    }
-                } else {
-                    System.out.println("❌ Opción no válida.");
-                }
-            } else {
-                // ACCIONES CUANDO ESTÁ EN VIAJE
-                if (opcion.equals("1")) {
-                    System.out.print("\n➤ Viaje terminado. Ingresa la nota para " + conductorAsignado + " (1 al 5): ");
-                    int nota;
-                    try {
-                        nota = Integer.parseInt(scanner.nextLine());
-                        if(nota < 1 || nota > 5) throw new NumberFormatException();
-                    } catch (NumberFormatException e) {
-                        System.out.println("❌ Nota inválida. Debe ser un número del 1 al 5.");
-                        continue;
+
+                        for (Viaje v : viajes) {
+                            System.out.println(v);
+                        }
                     }
 
-                    peticion = new MensajeUber("CALIFICAR", conductorAsignado, nota);
-                    System.out.println("\n📡 Enviando calificación...");
-                    simularCarga();
+                    break;
 
-                    enviarPeticion(peticion);
-                    System.out.println("✅ [UBER]: ¡Gracias por tu calificación! Viaje finalizado.");
+                case "4":
 
-                    // Reiniciamos el estado para que pueda pedir otro viaje
-                    enViaje = false;
-                    conductorAsignado = null;
-                } else {
-                    System.out.println("❌ Debes terminar tu viaje actual para hacer otra acción.");
-                }
+                    System.out.print(
+                            "Ingrese ID del viaje a finalizar: "
+                    );
+
+                    int idViaje =
+                            Integer.parseInt(scanner.nextLine());
+
+                    MensajeUber respuestaFinalizar =
+                            enviarPeticion(
+                                    new MensajeUber(
+                                            TipoMensaje.FINALIZAR_VIAJE,
+                                            usuario,
+                                            idViaje
+                                    )
+                            );
+
+                    System.out.println(
+                            respuestaFinalizar.getPayload()
+                    );
+
+                    break;
+
+                case "5":
+
+                    System.out.println(
+                            "Cerrando cliente..."
+                    );
+
+                    scanner.close();
+
+                    System.exit(0);
+
+                default:
+
+                    System.out.println(
+                            "Opción inválida."
+                    );
             }
         }
-        scanner.close();
     }
 
-    private static void simularCarga() {
-        try { Thread.sleep(1500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-    }
+    private static MensajeUber enviarPeticion(
+            MensajeUber peticion) {
 
-    // Modificamos el método para que retorne el Payload como String
-    private static String enviarPeticion(MensajeUber peticion) {
         try (
-                Socket socket = new Socket(IP_SERVIDOR, PUERTO);
-                ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
-                ObjectInputStream in = new ObjectInputStream(socket.getInputStream())
+                Socket socket =
+                        new Socket(IP_SERVIDOR, PUERTO);
+
+                ObjectOutputStream out =
+                        new ObjectOutputStream(
+                                socket.getOutputStream()
+                        );
+
+                ObjectInputStream in =
+                        new ObjectInputStream(
+                                socket.getInputStream()
+                        )
         ) {
+
+            socket.setSoTimeout(5000);
+
             out.writeObject(peticion);
-            MensajeUber respuesta = (MensajeUber) in.readObject();
-            return respuesta.getPayload().toString();
+
+            return (MensajeUber) in.readObject();
 
         } catch (Exception e) {
-            System.err.println("❌ [ERROR CRÍTICO]: No se pudo contactar al servidor. (" + e.getMessage() + ")");
-            return "ERROR";
+
+            System.err.println(
+                    "[CLIENTE] Error de conexión: "
+                            + e.getMessage()
+            );
+
+            return new MensajeUber(
+                    TipoMensaje.ERROR,
+                    "CLIENTE",
+                    "No fue posible conectar con el servidor"
+            );
         }
     }
 }

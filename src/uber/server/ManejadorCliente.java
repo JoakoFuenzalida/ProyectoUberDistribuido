@@ -1,11 +1,14 @@
 package uber.server;
 
-import uber.shared.MensajeUber;
+import uber.shared.*;
+
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
+import java.util.List;
 
 public class ManejadorCliente implements Runnable {
+
     private Socket socketCliente;
     private GestorUber gestor;
 
@@ -16,44 +19,131 @@ public class ManejadorCliente implements Runnable {
 
     @Override
     public void run() {
-        try (
-                ObjectOutputStream out = new ObjectOutputStream(socketCliente.getOutputStream());
-                ObjectInputStream in = new ObjectInputStream(socketCliente.getInputStream())
-        ) {
-            // Marshalling: recibimos el objeto complejo por la red
-            MensajeUber peticion = (MensajeUber) in.readObject();
 
-            System.out.println("[HILO] Petición recibida: " + peticion.getAccion() + " de " + peticion.getIdUsuario());
+        try (
+                ObjectOutputStream out =
+                        new ObjectOutputStream(socketCliente.getOutputStream());
+
+                ObjectInputStream in =
+                        new ObjectInputStream(socketCliente.getInputStream())
+        ) {
+
+            MensajeUber peticion =
+                    (MensajeUber) in.readObject();
+
+            System.out.println(
+                    "[HILO " + Thread.currentThread().threadId() + "] " +
+                            "Petición: " +
+                            peticion.getAccion() +
+                            " de " +
+                            peticion.getIdUsuario()
+            );
 
             switch (peticion.getAccion()) {
-                case "SOLICITAR_VIAJE":
-                    String asignado = gestor.solicitarViaje(peticion.getIdUsuario());
-                    MensajeUber respuestaViaje = new MensajeUber("RESPUESTA_VIAJE", "SERVIDOR", asignado);
-                    out.writeObject(respuestaViaje);
+
+                case SOLICITAR_VIAJE:
+
+                    SolicitudViaje solicitudInmediata =
+                            (SolicitudViaje) peticion.getPayload();
+
+                    Viaje viajeInmediato =
+                            gestor.solicitarViaje(
+                                    peticion.getIdUsuario(),
+                                    solicitudInmediata
+                            );
+
+                    out.writeObject(
+                            new MensajeUber(
+                                    TipoMensaje.RESPUESTA_VIAJE,
+                                    "SERVIDOR",
+                                    viajeInmediato
+                            )
+                    );
+
                     break;
 
-                case "CALIFICAR":
-                    int nota = (Integer) peticion.getPayload();
-                    String conductorEvaluado = peticion.getIdUsuario(); // El cliente manda el nombre del conductor aquí
+                case PROGRAMAR_VIAJE:
 
-                    // 1. Guardamos la nota
-                    gestor.calificar(conductorEvaluado, nota);
+                    SolicitudViaje solicitudProgramada =
+                            (SolicitudViaje) peticion.getPayload();
 
-                    // 2. ¡EL ARREGLO! Liberamos al conductor para que otro lo pueda usar
-                    gestor.liberarConductor(conductorEvaluado);
+                    Viaje viajeProgramado =
+                            gestor.programarViaje(
+                                    peticion.getIdUsuario(),
+                                    solicitudProgramada
+                            );
 
-                    MensajeUber respuestaCalificacion = new MensajeUber("RESPUESTA_CALIFICAR", "SERVIDOR", "Calificación exitosa");
-                    out.writeObject(respuestaCalificacion);
+                    out.writeObject(
+                            new MensajeUber(
+                                    TipoMensaje.RESPUESTA_PROGRAMAR,
+                                    "SERVIDOR",
+                                    viajeProgramado
+                            )
+                    );
+
+                    break;
+
+                case CONSULTAR_VIAJES:
+
+                    List<Viaje> viajes =
+                            gestor.consultarViajes(
+                                    peticion.getIdUsuario()
+                            );
+
+                    out.writeObject(
+                            new MensajeUber(
+                                    TipoMensaje.RESPUESTA_CONSULTA,
+                                    "SERVIDOR",
+                                    viajes
+                            )
+                    );
+
+                    break;
+
+                case FINALIZAR_VIAJE:
+
+                    Integer idViaje =
+                            (Integer) peticion.getPayload();
+
+                    gestor.finalizarViaje(idViaje);
+
+                    out.writeObject(
+                            new MensajeUber(
+                                    TipoMensaje.RESPUESTA_FINALIZAR,
+                                    "SERVIDOR",
+                                    "Viaje finalizado correctamente"
+                            )
+                    );
+
                     break;
 
                 default:
-                    out.writeObject(new MensajeUber("ERROR", "SERVIDOR", "Acción desconocida"));
+
+                    out.writeObject(
+                            new MensajeUber(
+                                    TipoMensaje.ERROR,
+                                    "SERVIDOR",
+                                    "Acción desconocida"
+                            )
+                    );
             }
+
         } catch (Exception e) {
-            // Manejo de excepciones para prevenir la caída total del sistema ante fallos parciales
-            System.err.println("[HILO] Error de red con el cliente (Crash): " + e.getMessage());
+
+            System.err.println(
+                    "[HILO " +
+                            Thread.currentThread().threadId() +
+                            "] Error con cliente: " +
+                            e.getMessage()
+            );
+
         } finally {
-            try { socketCliente.close(); } catch (Exception e) { /* Ignorar error al cerrar */ }
+
+            try {
+                socketCliente.close();
+            } catch (Exception e) {
+                // Ignorar
+            }
         }
     }
 }
