@@ -10,8 +10,8 @@ import java.util.List;
 
 public class ManejadorCliente implements Runnable {
 
-    private Socket socketCliente;
-    private GestorUber gestor;
+    private final Socket socketCliente;
+    private final GestorUber gestor;
 
     public ManejadorCliente(Socket socketCliente, GestorUber gestor) {
         this.socketCliente = socketCliente;
