@@ -7,6 +7,7 @@ import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.util.List;
 
+
 public class ManejadorCliente implements Runnable {
 
     private Socket socketCliente;
@@ -32,7 +33,7 @@ public class ManejadorCliente implements Runnable {
                     (MensajeUber) in.readObject();
 
             System.out.println(
-                    "[HILO " + Thread.currentThread().threadId() + "] " +
+                    "[HILO " + Thread.currentThread().getId() + "] " +
                             "Petición: " +
                             peticion.getAccion() +
                             " de " +
@@ -105,13 +106,17 @@ public class ManejadorCliente implements Runnable {
                     Integer idViaje =
                             (Integer) peticion.getPayload();
 
-                    gestor.finalizarViaje(idViaje);
+                    String resultado =
+                            gestor.finalizarViaje(
+                                    idViaje,
+                                    peticion.getIdUsuario()
+                            );
 
                     out.writeObject(
                             new MensajeUber(
                                     TipoMensaje.RESPUESTA_FINALIZAR,
                                     "SERVIDOR",
-                                    "Viaje finalizado correctamente"
+                                    resultado
                             )
                     );
 
@@ -132,7 +137,7 @@ public class ManejadorCliente implements Runnable {
 
             System.err.println(
                     "[HILO " +
-                            Thread.currentThread().threadId() +
+                            Thread.currentThread().getId() +
                             "] Error con cliente: " +
                             e.getMessage()
             );

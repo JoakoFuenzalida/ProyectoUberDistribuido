@@ -38,20 +38,31 @@ public class ServidorUber {
 
             while (true) {
 
-                Socket socketCliente =
-                        serverSocket.accept();
+                try {
 
-                System.out.println(
-                        "[SERVIDOR] Nueva conexión desde: "
-                                + socketCliente.getInetAddress()
-                );
+                    Socket socketCliente =
+                            serverSocket.accept();
 
-                pool.execute(
-                        new ManejadorCliente(
-                                socketCliente,
-                                gestor
-                        )
-                );
+                    System.out.println(
+                            "[SERVIDOR] Nueva conexión desde: "
+                                    + socketCliente.getInetAddress()
+                    );
+
+                    pool.execute(
+                            new ManejadorCliente(
+                                    socketCliente,
+                                    gestor
+                            )
+                    );
+
+                } catch (IOException e) {
+
+                    System.err.println(
+                            "[SERVIDOR] Error aceptando conexión: "
+                                    + e.getMessage()
+                                    + " — continuando..."
+                    );
+                }
             }
 
         } catch (IOException e) {
