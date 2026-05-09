@@ -1,0 +1,16 @@
+package uber.shared;
+
+public enum TipoMensaje {
+
+    SOLICITAR_VIAJE,
+    PROGRAMAR_VIAJE,
+    CONSULTAR_VIAJES,
+    FINALIZAR_VIAJE,
+
+    RESPUESTA_VIAJE,
+    RESPUESTA_PROGRAMAR,
+    RESPUESTA_CONSULTA,
+    RESPUESTA_FINALIZAR,
+
+    ERROR
+}
