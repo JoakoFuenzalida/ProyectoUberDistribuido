@@ -18,16 +18,16 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class GestorUber {
 
     // Recursos compartidos
-    private List<String> conductoresDisponibles;
+    private final List<String> conductoresDisponibles;
 
     // Viajes almacenados
-    private Map<Integer, Viaje> viajes;
+    private final Map<Integer, Viaje> viajes;
 
     // Generador automático de IDs
-    private AtomicInteger generadorId;
+    private final AtomicInteger generadorId;
 
     // Scheduler para viajes programados
-    private ScheduledExecutorService scheduler;
+    private final ScheduledExecutorService scheduler;
 
     public GestorUber() {
 
