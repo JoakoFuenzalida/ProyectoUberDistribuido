@@ -37,9 +37,19 @@ public class ManejadorCliente implements Runnable {
                             "Petición: " +
                             peticion.getAccion() +
                             " de " +
-                            peticion.getIdUsuario()
+                            peticion.getIdUsuario() +
+                            " (requestId=" + peticion.getRequestId() + ")"
             );
 
+            out.writeObject(
+                    new MensajeUber(
+                            TipoMensaje.ACK,
+                            "SERVIDOR",
+                            "RECIBIDO",
+                            peticion.getRequestId()
+                    )
+            );
+            out.flush();
             switch (peticion.getAccion()) {
 
                 case SOLICITAR_VIAJE:
@@ -122,16 +132,10 @@ public class ManejadorCliente implements Runnable {
 
                     break;
 
-                default:
+            MensajeUber respuesta =
+                    gestor.procesarPeticion(peticion);
 
-                    out.writeObject(
-                            new MensajeUber(
-                                    TipoMensaje.ERROR,
-                                    "SERVIDOR",
-                                    "Acción desconocida"
-                            )
-                    );
-            }
+            out.writeObject(respuesta);
 
         } catch (Exception e) {
 

@@ -8,11 +8,13 @@ import java.net.Socket;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Scanner;
+import java.util.UUID;
 
 public class ClienteUber {
 
     private static final String IP_SERVIDOR = "127.0.0.1";
     private static final int PUERTO = 5000;
+    private static final int MAX_REINTENTOS = 3;
 
     public static void main(String[] args) {
 
@@ -132,6 +134,16 @@ public class ClienteUber {
                                     )
                             );
 
+                    if (respuesta.getAccion() == TipoMensaje.ERROR) {
+                        System.out.println(
+                                "\n=== ERROR ==="
+                        );
+                        System.out.println(
+                                respuesta.getPayload()
+                        );
+                        break;
+                    }
+
                     System.out.println(
                             "\n=== RESPUESTA DEL SERVIDOR ==="
                     );
@@ -186,6 +198,24 @@ public class ClienteUber {
                                     )
                             );
 
+                    if (respuestaProgramada.getAccion() == TipoMensaje.ERROR) {
+                        System.out.println(
+                                "\n=== ERROR ==="
+                        );
+                        System.out.println(
+                                respuestaProgramada.getPayload()
+                        );
+                        break;
+                    }
+
+                    System.out.println(
+                            "\n=== VIAJE PROGRAMADO ==="
+                    );
+
+                    System.out.println(
+                            respuestaProgramada.getPayload()
+                    );
+
                     System.out.println("\n=== VIAJE PROGRAMADO ===");
                     System.out.println(respuestaProg.getPayload());
                     break;
@@ -195,6 +225,19 @@ public class ClienteUber {
                     imprimirListaViajes(usuario);
                     break;
 
+                    if (respuestaConsulta.getAccion() == TipoMensaje.ERROR) {
+                        System.out.println(
+                                "\n=== ERROR ==="
+                        );
+                        System.out.println(
+                                respuestaConsulta.getPayload()
+                        );
+                        break;
+                    }
+
+                    @SuppressWarnings("unchecked")
+                    List<Viaje> viajes =
+                            (List<Viaje>) respuestaConsulta.getPayload();
                 case "4":
 
                     System.out.println("Cerrando cliente...");
@@ -246,6 +289,16 @@ public class ClienteUber {
                                 "[ERROR] La fecha ingresada ya pasó."
                         );
                         return null;
+                    }
+
+                    if (respuestaFinalizar.getAccion() == TipoMensaje.ERROR) {
+                        System.out.println(
+                                "\n=== ERROR ==="
+                        );
+                        System.out.println(
+                                respuestaFinalizar.getPayload()
+                        );
+                        break;
                     }
 
                     System.out.println(
@@ -380,39 +433,75 @@ public class ClienteUber {
     private static MensajeUber enviarPeticion(
             MensajeUber peticion) {
 
-        try (
-                Socket socket =
-                        new Socket(IP_SERVIDOR, PUERTO);
+        int intentos = 0;
 
-                ObjectOutputStream out =
-                        new ObjectOutputStream(
-                                socket.getOutputStream()
-                        );
+        while (intentos < MAX_REINTENTOS) {
 
-                ObjectInputStream in =
-                        new ObjectInputStream(
-                                socket.getInputStream()
-                        )
-        ) {
+            try (
+                    Socket socket =
+                            new Socket(IP_SERVIDOR, PUERTO);
 
-            socket.setSoTimeout(5000);
+                    ObjectOutputStream out =
+                            new ObjectOutputStream(
+                                    socket.getOutputStream()
+                            );
 
-            out.writeObject(peticion);
+                    ObjectInputStream in =
+                            new ObjectInputStream(
+                                    socket.getInputStream()
+                            )
+            ) {
 
-            return (MensajeUber) in.readObject();
+                socket.setSoTimeout(5000);
 
-        } catch (Exception e) {
+                out.writeObject(peticion);
+                out.flush();
 
-            System.err.println(
-                    "[CLIENTE] Error de conexión: "
-                            + e.getMessage()
-            );
+                Object primerObjeto = in.readObject();
 
-            return new MensajeUber(
-                    TipoMensaje.ERROR,
-                    "CLIENTE",
-                    "No fue posible conectar con el servidor"
-            );
+                if (primerObjeto instanceof MensajeUber) {
+                    MensajeUber mensaje = (MensajeUber) primerObjeto;
+
+                    if (mensaje.getAccion() == TipoMensaje.ACK &&
+                            peticion.getRequestId().equals(mensaje.getRequestId())) {
+
+                        Object segundoObjeto = in.readObject();
+
+                        if (segundoObjeto instanceof MensajeUber) {
+                            MensajeUber respuesta = (MensajeUber) segundoObjeto;
+                            if (peticion.getRequestId().equals(respuesta.getRequestId())) {
+                                return respuesta;
+                            }
+                        }
+                    } else if (mensaje.getRequestId() != null &&
+                            mensaje.getRequestId().equals(peticion.getRequestId())) {
+
+                        return mensaje;
+                    }
+                }
+
+                throw new Exception("Respuesta inválida del servidor");
+
+            } catch (Exception e) {
+
+                intentos++;
+
+                System.err.println(
+                        "[CLIENTE] Intento " + intentos + ": "
+                                + e.getMessage()
+                );
+
+                if (intentos >= MAX_REINTENTOS) {
+                    break;
+                }
+            }
         }
+
+        return new MensajeUber(
+                TipoMensaje.ERROR,
+                "CLIENTE",
+                "No fue posible conectar con el servidor después de "
+                        + MAX_REINTENTOS + " intentos"
+        );
     }
 }
