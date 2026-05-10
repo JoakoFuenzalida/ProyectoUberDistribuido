@@ -23,20 +23,43 @@ public class ServidorUber {
             System.out.println(
                     "====================================="
             );
-
             System.out.println(
                     " SERVIDOR UBER DISTRIBUIDO INICIADO "
             );
-
             System.out.println(
                     " Puerto: " + PUERTO
             );
-
             System.out.println(
                     "====================================="
             );
 
-            while (true) {
+            escucharConexiones(serverSocket, pool, gestor);
+
+        } catch (IOException e) {
+
+            System.err.println(
+                    "[SERVIDOR] No se pudo abrir el puerto "
+                            + PUERTO + ": " + e.getMessage()
+            );
+
+        } finally {
+
+            pool.shutdown();
+
+            System.out.println(
+                    "[SERVIDOR] Pool de hilos cerrado."
+            );
+        }
+    }
+
+    private static void escucharConexiones(
+            ServerSocket serverSocket,
+            ExecutorService pool,
+            GestorUber gestor) {
+
+        while (!serverSocket.isClosed()) {
+
+            try {
 
                 Socket socketCliente =
                         serverSocket.accept();
@@ -52,22 +75,18 @@ public class ServidorUber {
                                 gestor
                         )
                 );
+
+            } catch (IOException e) {
+
+                if (!serverSocket.isClosed()) {
+
+                    System.err.println(
+                            "[SERVIDOR] Error aceptando conexión: "
+                                    + e.getMessage()
+                                    + " — continuando..."
+                    );
+                }
             }
-
-        } catch (IOException e) {
-
-            System.err.println(
-                    "[SERVIDOR] Error crítico: "
-                            + e.getMessage()
-            );
-
-        } finally {
-
-            pool.shutdown();
-
-            System.out.println(
-                    "[SERVIDOR] Pool de hilos cerrado."
-            );
         }
     }
 }

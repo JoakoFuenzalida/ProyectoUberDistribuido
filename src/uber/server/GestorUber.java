@@ -18,19 +18,19 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class GestorUber {
 
     // Recursos compartidos
-    private List<String> conductoresDisponibles;
+    private final List<String> conductoresDisponibles;
 
     // Viajes almacenados
-    private Map<Integer, Viaje> viajes;
+    private final Map<Integer, Viaje> viajes;
 
     // Cache de respuestas para peticiones repetidas
     private Map<String, MensajeUber> cacheRespuestas;
 
     // Generador automático de IDs
-    private AtomicInteger generadorId;
+    private final AtomicInteger generadorId;
 
     // Scheduler para viajes programados
-    private ScheduledExecutorService scheduler;
+    private final ScheduledExecutorService scheduler;
 
     public GestorUber() {
 
@@ -87,12 +87,12 @@ public class GestorUber {
 
         viaje.setConductor(conductor);
 
-        viaje.setEstado(EstadoViaje.ASIGNADO);
+        viaje.setEstado(EstadoViaje.EN_CURSO);
 
         viajes.put(id, viaje);
 
         System.out.println(
-                "[GESTOR] Viaje inmediato asignado: "
+                "[GESTOR] Viaje iniciado: "
                         + viaje
         );
 
@@ -262,10 +262,10 @@ public class GestorUber {
 
         viaje.setConductor(conductor);
 
-        viaje.setEstado(EstadoViaje.ASIGNADO);
+        viaje.setEstado(EstadoViaje.EN_CURSO);
 
         System.out.println(
-                "[SCHEDULER] Viaje programado ejecutado: "
+                "[SCHEDULER] Viaje programado en curso: "
                         + viaje
         );
     }
@@ -296,13 +296,27 @@ public class GestorUber {
     // FINALIZAR VIAJE
     // =========================================
 
-    public synchronized void finalizarViaje(
-            int idViaje) {
+    public synchronized String finalizarViaje(
+            int idViaje,
+            String pasajero) {
 
         Viaje viaje = viajes.get(idViaje);
 
         if (viaje == null) {
-            return;
+            return "No existe un viaje con el ID " + idViaje + ".";
+        }
+
+        if (!viaje.getPasajero().equals(pasajero)) {
+            return "No tienes permiso para finalizar ese viaje.";
+        }
+
+        if (viaje.getEstado() == EstadoViaje.FINALIZADO) {
+            return "El viaje #" + idViaje + " ya fue finalizado.";
+        }
+
+        if (viaje.getEstado() == EstadoViaje.PROGRAMADO) {
+            return "El viaje #" + idViaje
+                    + " aún no ha comenzado (está programado).";
         }
 
         viaje.setEstado(EstadoViaje.FINALIZADO);
@@ -318,5 +332,10 @@ public class GestorUber {
                 "[GESTOR] Viaje finalizado: "
                         + viaje
         );
+
+        return "Viaje #" + idViaje
+                + " finalizado correctamente. "
+                + "Conductor " + viaje.getConductor()
+                + " liberado.";
     }
 }

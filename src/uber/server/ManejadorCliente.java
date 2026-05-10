@@ -7,10 +7,11 @@ import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.util.List;
 
+
 public class ManejadorCliente implements Runnable {
 
-    private Socket socketCliente;
-    private GestorUber gestor;
+    private final Socket socketCliente;
+    private final GestorUber gestor;
 
     public ManejadorCliente(Socket socketCliente, GestorUber gestor) {
         this.socketCliente = socketCliente;
@@ -32,7 +33,7 @@ public class ManejadorCliente implements Runnable {
                     (MensajeUber) in.readObject();
 
             System.out.println(
-                    "[HILO " + Thread.currentThread().threadId() + "] " +
+                    "[HILO " + Thread.currentThread().getId() + "] " +
                             "Petición: " +
                             peticion.getAccion() +
                             " de " +
@@ -49,6 +50,87 @@ public class ManejadorCliente implements Runnable {
                     )
             );
             out.flush();
+            switch (peticion.getAccion()) {
+
+                case SOLICITAR_VIAJE:
+
+                    SolicitudViaje solicitudInmediata =
+                            (SolicitudViaje) peticion.getPayload();
+
+                    Viaje viajeInmediato =
+                            gestor.solicitarViaje(
+                                    peticion.getIdUsuario(),
+                                    solicitudInmediata
+                            );
+
+                    out.writeObject(
+                            new MensajeUber(
+                                    TipoMensaje.RESPUESTA_VIAJE,
+                                    "SERVIDOR",
+                                    viajeInmediato
+                            )
+                    );
+
+                    break;
+
+                case PROGRAMAR_VIAJE:
+
+                    SolicitudViaje solicitudProgramada =
+                            (SolicitudViaje) peticion.getPayload();
+
+                    Viaje viajeProgramado =
+                            gestor.programarViaje(
+                                    peticion.getIdUsuario(),
+                                    solicitudProgramada
+                            );
+
+                    out.writeObject(
+                            new MensajeUber(
+                                    TipoMensaje.RESPUESTA_PROGRAMAR,
+                                    "SERVIDOR",
+                                    viajeProgramado
+                            )
+                    );
+
+                    break;
+
+                case CONSULTAR_VIAJES:
+
+                    List<Viaje> viajes =
+                            gestor.consultarViajes(
+                                    peticion.getIdUsuario()
+                            );
+
+                    out.writeObject(
+                            new MensajeUber(
+                                    TipoMensaje.RESPUESTA_CONSULTA,
+                                    "SERVIDOR",
+                                    viajes
+                            )
+                    );
+
+                    break;
+
+                case FINALIZAR_VIAJE:
+
+                    Integer idViaje =
+                            (Integer) peticion.getPayload();
+
+                    String resultado =
+                            gestor.finalizarViaje(
+                                    idViaje,
+                                    peticion.getIdUsuario()
+                            );
+
+                    out.writeObject(
+                            new MensajeUber(
+                                    TipoMensaje.RESPUESTA_FINALIZAR,
+                                    "SERVIDOR",
+                                    resultado
+                            )
+                    );
+
+                    break;
 
             MensajeUber respuesta =
                     gestor.procesarPeticion(peticion);
@@ -59,7 +141,7 @@ public class ManejadorCliente implements Runnable {
 
             System.err.println(
                     "[HILO " +
-                            Thread.currentThread().threadId() +
+                            Thread.currentThread().getId() +
                             "] Error con cliente: " +
                             e.getMessage()
             );
