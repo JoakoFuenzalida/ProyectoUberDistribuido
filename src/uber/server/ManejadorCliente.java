@@ -36,97 +36,24 @@ public class ManejadorCliente implements Runnable {
                             "Petición: " +
                             peticion.getAccion() +
                             " de " +
-                            peticion.getIdUsuario()
+                            peticion.getIdUsuario() +
+                            " (requestId=" + peticion.getRequestId() + ")"
             );
 
-            switch (peticion.getAccion()) {
+            out.writeObject(
+                    new MensajeUber(
+                            TipoMensaje.ACK,
+                            "SERVIDOR",
+                            "RECIBIDO",
+                            peticion.getRequestId()
+                    )
+            );
+            out.flush();
 
-                case SOLICITAR_VIAJE:
+            MensajeUber respuesta =
+                    gestor.procesarPeticion(peticion);
 
-                    SolicitudViaje solicitudInmediata =
-                            (SolicitudViaje) peticion.getPayload();
-
-                    Viaje viajeInmediato =
-                            gestor.solicitarViaje(
-                                    peticion.getIdUsuario(),
-                                    solicitudInmediata
-                            );
-
-                    out.writeObject(
-                            new MensajeUber(
-                                    TipoMensaje.RESPUESTA_VIAJE,
-                                    "SERVIDOR",
-                                    viajeInmediato
-                            )
-                    );
-
-                    break;
-
-                case PROGRAMAR_VIAJE:
-
-                    SolicitudViaje solicitudProgramada =
-                            (SolicitudViaje) peticion.getPayload();
-
-                    Viaje viajeProgramado =
-                            gestor.programarViaje(
-                                    peticion.getIdUsuario(),
-                                    solicitudProgramada
-                            );
-
-                    out.writeObject(
-                            new MensajeUber(
-                                    TipoMensaje.RESPUESTA_PROGRAMAR,
-                                    "SERVIDOR",
-                                    viajeProgramado
-                            )
-                    );
-
-                    break;
-
-                case CONSULTAR_VIAJES:
-
-                    List<Viaje> viajes =
-                            gestor.consultarViajes(
-                                    peticion.getIdUsuario()
-                            );
-
-                    out.writeObject(
-                            new MensajeUber(
-                                    TipoMensaje.RESPUESTA_CONSULTA,
-                                    "SERVIDOR",
-                                    viajes
-                            )
-                    );
-
-                    break;
-
-                case FINALIZAR_VIAJE:
-
-                    Integer idViaje =
-                            (Integer) peticion.getPayload();
-
-                    gestor.finalizarViaje(idViaje);
-
-                    out.writeObject(
-                            new MensajeUber(
-                                    TipoMensaje.RESPUESTA_FINALIZAR,
-                                    "SERVIDOR",
-                                    "Viaje finalizado correctamente"
-                            )
-                    );
-
-                    break;
-
-                default:
-
-                    out.writeObject(
-                            new MensajeUber(
-                                    TipoMensaje.ERROR,
-                                    "SERVIDOR",
-                                    "Acción desconocida"
-                            )
-                    );
-            }
+            out.writeObject(respuesta);
 
         } catch (Exception e) {
 

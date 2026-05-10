@@ -12,5 +12,6 @@ public enum TipoMensaje {
     RESPUESTA_CONSULTA,
     RESPUESTA_FINALIZAR,
 
+    ACK,
     ERROR
 }

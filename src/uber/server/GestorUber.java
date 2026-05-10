@@ -23,6 +23,9 @@ public class GestorUber {
     // Viajes almacenados
     private Map<Integer, Viaje> viajes;
 
+    // Cache de respuestas para peticiones repetidas
+    private Map<String, MensajeUber> cacheRespuestas;
+
     // Generador automático de IDs
     private AtomicInteger generadorId;
 
@@ -34,6 +37,7 @@ public class GestorUber {
         conductoresDisponibles = new ArrayList<>();
 
         viajes = new HashMap<>();
+        cacheRespuestas = new HashMap<>();
 
         generadorId = new AtomicInteger(1);
 
@@ -94,7 +98,94 @@ public class GestorUber {
 
         return viaje;
     }
+    public synchronized MensajeUber procesarPeticion(
+            MensajeUber peticion) {
 
+        String requestId = peticion.getRequestId();
+
+        if (cacheRespuestas.containsKey(requestId)) {
+            return cacheRespuestas.get(requestId);
+        }
+
+        MensajeUber respuesta;
+
+        switch (peticion.getAccion()) {
+            case SOLICITAR_VIAJE: {
+                SolicitudViaje solicitudInmediata =
+                        (SolicitudViaje) peticion.getPayload();
+
+                Viaje viajeInmediato =
+                        solicitarViaje(
+                                peticion.getIdUsuario(),
+                                solicitudInmediata
+                        );
+
+                respuesta = new MensajeUber(
+                        TipoMensaje.RESPUESTA_VIAJE,
+                        "SERVIDOR",
+                        viajeInmediato,
+                        requestId
+                );
+                break;
+            }
+            case PROGRAMAR_VIAJE: {
+                SolicitudViaje solicitudProgramada =
+                        (SolicitudViaje) peticion.getPayload();
+
+                Viaje viajeProgramado =
+                        programarViaje(
+                                peticion.getIdUsuario(),
+                                solicitudProgramada
+                        );
+
+                respuesta = new MensajeUber(
+                        TipoMensaje.RESPUESTA_PROGRAMAR,
+                        "SERVIDOR",
+                        viajeProgramado,
+                        requestId
+                );
+                break;
+            }
+            case CONSULTAR_VIAJES: {
+                List<Viaje> viajesUsuario =
+                        consultarViajes(
+                                peticion.getIdUsuario()
+                        );
+
+                respuesta = new MensajeUber(
+                        TipoMensaje.RESPUESTA_CONSULTA,
+                        "SERVIDOR",
+                        viajesUsuario,
+                        requestId
+                );
+                break;
+            }
+            case FINALIZAR_VIAJE: {
+                Integer idViaje =
+                        (Integer) peticion.getPayload();
+
+                finalizarViaje(idViaje);
+
+                respuesta = new MensajeUber(
+                        TipoMensaje.RESPUESTA_FINALIZAR,
+                        "SERVIDOR",
+                        "Viaje finalizado correctamente",
+                        requestId
+                );
+                break;
+            }
+            default:
+                respuesta = new MensajeUber(
+                        TipoMensaje.ERROR,
+                        "SERVIDOR",
+                        "Acción desconocida",
+                        requestId
+                );
+        }
+
+        cacheRespuestas.put(requestId, respuesta);
+        return respuesta;
+    }
     // =========================================
     // PROGRAMAR VIAJE
     // =========================================
