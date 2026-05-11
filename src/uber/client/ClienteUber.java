@@ -6,502 +6,169 @@ import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.Scanner;
 import java.util.UUID;
 
 public class ClienteUber {
-
     private static final String IP_SERVIDOR = "127.0.0.1";
     private static final int PUERTO = 5000;
-    private static final int MAX_REINTENTOS = 3;
 
     public static void main(String[] args) {
-
         Scanner scanner = new Scanner(System.in);
+        System.out.println("======================================");
+        System.out.println("       🚗 BIENVENIDO A UBER 🚗       ");
+        System.out.println("======================================");
+        System.out.print("➤ Ingrese su nombre de usuario: ");
+        String idUsuario = scanner.nextLine();
 
-        System.out.println("=================================");
-        System.out.println("         CLIENTE UBER           ");
-        System.out.println("=================================");
-
-        System.out.print("Ingrese nombre de usuario: ");
-
-        String usuario = scanner.nextLine();
+        System.out.println("\nIniciando sesión... conectado al servidor central.");
 
         while (true) {
+            System.out.println("\n--------------------------------------");
+            System.out.println(" Hola, " + idUsuario + ". ¿Qué deseas hacer?");
+            System.out.println(" 1. 📍 Solicitar Viaje Inmediato");
+            System.out.println(" 2. ⏰ Programar Viaje");
+            System.out.println(" 3. 📋 Consultar mis Viajes");
+            System.out.println(" 4. ⭐ Finalizar un Viaje");
+            System.out.println(" 5. 🚪 Salir");
+            System.out.println("--------------------------------------");
+            System.out.print("➤ Seleccione una opción: ");
 
-            // ── SINCRONIZAR ESTADO CON EL SERVIDOR ────────────
-            // Al inicio de cada iteración consultamos el servidor
-            // para saber si el pasajero ya tiene un viaje activo
-            // (EN_CURSO, PENDIENTE o PROGRAMADO).
-            // Esto detecta tanto viajes programados que el scheduler
-            // activó en segundo plano, como viajes pendientes por
-            // falta de conductor.
-            Viaje viajeActivo = obtenerViajeActivo(usuario);
-
-            System.out.println("\n--------- MENÚ ---------");
-
-            if (viajeActivo != null) {
-
-                // Hay un viaje ocupando al pasajero
-                System.out.println(
-                        ">>> Viaje #" + viajeActivo.getId()
-                                + " | Estado: " + viajeActivo.getEstado()
-                                + " | " + viajeActivo.getOrigen()
-                                + " → " + viajeActivo.getDestino()
-                                + (viajeActivo.getConductor() != null
-                                ? " | Conductor: " + viajeActivo.getConductor()
-                                : " | Sin conductor asignado aún")
-                );
-                System.out.println("1. Consultar mis viajes");
-                System.out.println("2. Finalizar viaje");
-                System.out.println("3. Salir");
-
-            } else {
-
-                // Libre para pedir un nuevo viaje
-                System.out.println("1. Solicitar viaje");
-                System.out.println("2. Programar viaje");
-                System.out.println("3. Consultar mis viajes");
-                System.out.println("4. Salir");
-            }
-
-            System.out.print("Seleccione opción: ");
             String opcion = scanner.nextLine();
 
-            // ── MENÚ CON VIAJE ACTIVO ──────────────────────────
-            if (viajeActivo != null) {
+            if (opcion.equals("5")) {
+                System.out.println("Cerrando sesión. ¡Buen viaje!");
+                break;
+            }
 
+            MensajeUber peticion;
+            // Generamos un ID único para la petición (Idempotencia)
+            String requestId = UUID.randomUUID().toString();
+
+            try {
+                // NOTA: Usamos { } en cada case para aislar las variables y evitar los errores de compilación
                 switch (opcion) {
+                    case "1": {
+                        System.out.print("➤ Ingresa tu origen: ");
+                        String origen = scanner.nextLine();
+                        System.out.print("➤ Ingresa tu destino: ");
+                        String destino = scanner.nextLine();
 
-                    case "1":
-
-                        imprimirListaViajes(usuario);
+                        SolicitudViaje solicitud = new SolicitudViaje(origen, destino, true, null );
+                        peticion = new MensajeUber(TipoMensaje.SOLICITAR_VIAJE, idUsuario, solicitud, requestId);
+                        System.out.println("\n📡 Buscando conductores cercanos...");
                         break;
+                    }
+                    case "2": {
+                        System.out.print("➤ Ingresa tu origen: ");
+                        String origen = scanner.nextLine();
+                        System.out.print("➤ Ingresa tu destino: ");
+                        String destino = scanner.nextLine();
 
-                    case "2":
+                        System.out.println("\n--- OPCIONES DE PROGRAMACIÓN ---");
+                        System.out.println(" 1. 📅 Fecha y hora completa (YYYY-MM-DD HH:MM)");
+                        System.out.println(" 2. 🕒 Solo hora para el día de hoy (HH:MM)");
+                        System.out.print("➤ Selecciona una opción: ");
+                        String subOpcion = scanner.nextLine();
 
-                        MensajeUber respuestaFinalizar =
-                                enviarPeticion(
-                                        new MensajeUber(
-                                                TipoMensaje.FINALIZAR_VIAJE,
-                                                usuario,
-                                                viajeActivo.getId()
-                                        )
-                                );
+                        LocalDateTime fecha;
+                        try {
+                            if (subOpcion.equals("1")) {
+                                System.out.print("➤ Ingresa la fecha y hora (ej. 2026-05-11 15:30): ");
+                                String fechaStr = scanner.nextLine();
+                                java.time.format.DateTimeFormatter formatter = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+                                fecha = LocalDateTime.parse(fechaStr, formatter);
+                            } else if (subOpcion.equals("2")) {
+                                System.out.print("➤ Ingresa la hora para hoy (ej. 22:30): ");
+                                String horaStr = scanner.nextLine();
+                                java.time.format.DateTimeFormatter timeFormatter = java.time.format.DateTimeFormatter.ofPattern("HH:mm");
+                                java.time.LocalTime hora = java.time.LocalTime.parse(horaStr, timeFormatter);
+                                // Combinamos la fecha actual con la hora que ingresó el usuario
+                                fecha = LocalDateTime.of(java.time.LocalDate.now(), hora);
+                            } else {
+                                System.out.println("❌ Opción inválida. Programando viaje para 1 minuto más...");
+                                fecha = LocalDateTime.now().plusMinutes(1);
+                            }
 
-                        System.out.println("\n=== RESULTADO ===");
-                        System.out.println(
-                                respuestaFinalizar.getPayload()
-                        );
+                            // Validación inteligente: Si por error en la demo pones una hora que ya pasó
+                            if (fecha.isBefore(LocalDateTime.now())) {
+                                System.out.println("⚠️ La hora ingresada ya pasó. Programando automáticamente para 1 minuto más...");
+                                fecha = LocalDateTime.now().plusMinutes(1);
+                            }
+
+                        } catch (Exception e) {
+                            System.out.println("❌ Formato incorrecto. Programando viaje por defecto para 1 minuto más...");
+                            fecha = LocalDateTime.now().plusMinutes(1);
+                        }
+
+                        SolicitudViaje solicitud = new SolicitudViaje(origen, destino, true, fecha);
+                        peticion = new MensajeUber(TipoMensaje.PROGRAMAR_VIAJE, idUsuario, solicitud, requestId);
+                        // Mostramos la fecha final formateada para que se vea limpio
+                        System.out.println("\n📡 Programando tu viaje para: " + fecha.toString().replace("T", " "));
                         break;
-
-                    case "3":
-
-                        System.out.println("Cerrando cliente...");
-                        scanner.close();
-                        System.exit(0);
-
+                    }
+                    case "3": {
+                        peticion = new MensajeUber(TipoMensaje.CONSULTAR_VIAJES, idUsuario, null, requestId);
+                        System.out.println("\n📡 Consultando la base de datos...");
+                        break;
+                    }
+                    case "4": {
+                        peticion = new MensajeUber(TipoMensaje.FINALIZAR_VIAJE, idUsuario, null, requestId);
+                        System.out.println("\n📡 Procesando pago y liberando conductor...");
+                        break;
+                    }
                     default:
-                        System.out.println("Opción inválida.");
+                        System.out.println("❌ Opción no válida. Intente de nuevo.");
+                        continue;
                 }
 
-                continue;
-            }
+                enviarPeticion(peticion);
 
-            // ── MENÚ SIN VIAJE ACTIVO ──────────────────────────
-            switch (opcion) {
-
-                case "1":
-
-                    System.out.print("Origen: ");
-                    String origen = scanner.nextLine();
-
-                    System.out.print("Destino: ");
-                    String destino = scanner.nextLine();
-
-                    MensajeUber respuesta =
-                            enviarPeticion(
-                                    new MensajeUber(
-                                            TipoMensaje.SOLICITAR_VIAJE,
-                                            usuario,
-                                            new SolicitudViaje(
-                                                    origen,
-                                                    destino,
-                                                    false,
-                                                    null
-                                            )
-                                    )
-                            );
-
-                    if (respuesta.getAccion() == TipoMensaje.ERROR) {
-                        System.out.println(
-                                "\n=== ERROR ==="
-                        );
-                        System.out.println(
-                                respuesta.getPayload()
-                        );
-                        break;
-                    }
-
-                    System.out.println(
-                            "\n=== RESPUESTA DEL SERVIDOR ==="
-                    );
-
-                    Viaje viajeRecibido =
-                            (Viaje) respuesta.getPayload();
-
-                    System.out.println(viajeRecibido);
-
-                    if (viajeRecibido != null
-                            && viajeRecibido.getEstado()
-                            == EstadoViaje.EN_CURSO) {
-                        System.out.println(
-                                "\n¡Viaje iniciado! Conductor: "
-                                        + viajeRecibido.getConductor()
-                        );
-                    } else {
-                        System.out.println(
-                                "\nNo hay conductores disponibles. "
-                                        + "El viaje quedó en espera."
-                        );
-                    }
-
-                    break;
-
-                case "2":
-
-                    System.out.print("Origen: ");
-                    String origenProg = scanner.nextLine();
-
-                    System.out.print("Destino: ");
-                    String destinoProg = scanner.nextLine();
-
-                    LocalDateTime fechaProg =
-                            pedirFechaHora(scanner);
-
-                    if (fechaProg == null) {
-                        break;
-                    }
-
-                    MensajeUber respuestaProg =
-                            enviarPeticion(
-                                    new MensajeUber(
-                                            TipoMensaje.PROGRAMAR_VIAJE,
-                                            usuario,
-                                            new SolicitudViaje(
-                                                    origenProg,
-                                                    destinoProg,
-                                                    true,
-                                                    fechaProg
-                                            )
-                                    )
-                            );
-
-                    if (respuestaProgramada.getAccion() == TipoMensaje.ERROR) {
-                        System.out.println(
-                                "\n=== ERROR ==="
-                        );
-                        System.out.println(
-                                respuestaProgramada.getPayload()
-                        );
-                        break;
-                    }
-
-                    System.out.println(
-                            "\n=== VIAJE PROGRAMADO ==="
-                    );
-
-                    System.out.println(
-                            respuestaProgramada.getPayload()
-                    );
-
-                    System.out.println("\n=== VIAJE PROGRAMADO ===");
-                    System.out.println(respuestaProg.getPayload());
-                    break;
-
-                case "3":
-
-                    imprimirListaViajes(usuario);
-                    break;
-
-                    if (respuestaConsulta.getAccion() == TipoMensaje.ERROR) {
-                        System.out.println(
-                                "\n=== ERROR ==="
-                        );
-                        System.out.println(
-                                respuestaConsulta.getPayload()
-                        );
-                        break;
-                    }
-
-                    @SuppressWarnings("unchecked")
-                    List<Viaje> viajes =
-                            (List<Viaje>) respuestaConsulta.getPayload();
-                case "4":
-
-                    System.out.println("Cerrando cliente...");
-                    scanner.close();
-                    System.exit(0);
-
-                default:
-                    System.out.println("Opción inválida.");
+            } catch (Exception e) {
+                System.out.println("❌ Error al ingresar los datos: " + e.getMessage());
             }
         }
+        scanner.close();
     }
 
-    // Solicita al usuario la fecha y hora del viaje programado.
-    // Ofrece tres modos:
-    //   1 — ingresar fecha y hora completa (dd/MM/yyyy HH:mm)
-    //   2 — ingresar solo la hora de hoy          (HH:mm)
-    //   3 — modo demo: N segundos desde ahora
-    // Retorna null si la entrada es inválida.
-    private static LocalDateTime pedirFechaHora(Scanner scanner) {
+    private static void enviarPeticion(MensajeUber peticion) {
+        int MAX_INTENTOS = 3;
 
-        System.out.println("\n¿Cómo desea ingresar la hora del viaje?");
-        System.out.println("  1. Fecha y hora exacta  (dd/MM/yyyy HH:mm)");
-        System.out.println("  2. Solo la hora de hoy  (HH:mm)");
-        System.out.print("Opción: ");
-
-        String modo = scanner.nextLine().trim();
-
-        try {
-
-            switch (modo) {
-
-                case "1": {
-
-                    System.out.print(
-                            "Ingrese fecha y hora (dd/MM/yyyy HH:mm): "
-                    );
-
-                    String entrada = scanner.nextLine().trim();
-
-                    java.time.format.DateTimeFormatter fmt =
-                            java.time.format.DateTimeFormatter
-                                    .ofPattern("dd/MM/yyyy HH:mm");
-
-                    LocalDateTime dt =
-                            LocalDateTime.parse(entrada, fmt);
-
-                    if (dt.isBefore(LocalDateTime.now())) {
-                        System.out.println(
-                                "[ERROR] La fecha ingresada ya pasó."
-                        );
-                        return null;
-                    }
-
-                    if (respuestaFinalizar.getAccion() == TipoMensaje.ERROR) {
-                        System.out.println(
-                                "\n=== ERROR ==="
-                        );
-                        System.out.println(
-                                respuestaFinalizar.getPayload()
-                        );
-                        break;
-                    }
-
-                    System.out.println(
-                            "[INFO] Viaje programado para: " + dt
-                    );
-
-                    return dt;
-                }
-
-                case "2": {
-
-                    System.out.print(
-                            "Ingrese la hora (HH:mm): "
-                    );
-
-                    String entrada = scanner.nextLine().trim();
-
-                    java.time.format.DateTimeFormatter fmt =
-                            java.time.format.DateTimeFormatter
-                                    .ofPattern("HH:mm");
-
-                    java.time.LocalTime hora =
-                            java.time.LocalTime.parse(entrada, fmt);
-
-                    LocalDateTime dt =
-                            LocalDateTime.now()
-                                    .withHour(hora.getHour())
-                                    .withMinute(hora.getMinute())
-                                    .withSecond(0)
-                                    .withNano(0);
-
-                    if (dt.isBefore(LocalDateTime.now())) {
-                        System.out.println(
-                                "[ERROR] Esa hora ya pasó hoy."
-                        );
-                        return null;
-                    }
-
-                    long minutosRestantes =
-                            java.time.Duration.between(
-                                    LocalDateTime.now(), dt
-                            ).toMinutes();
-
-                    System.out.println(
-                            "[INFO] Viaje programado para las "
-                                    + entrada
-                                    + " (en aprox. "
-                                    + minutosRestantes
-                                    + " minuto(s))."
-                    );
-
-                    return dt;
-                }
-
-                default:
-                    System.out.println("[ERROR] Opción inválida.");
-                    return null;
-            }
-
-        } catch (Exception e) {
-
-            System.out.println(
-                    "[ERROR] Formato inválido: "
-                            + e.getMessage()
-            );
-
-            return null;
-        }
-    }
-
-    // Consulta al servidor y retorna el primer viaje
-    // que esté en un estado "ocupado" (EN_CURSO, PENDIENTE
-    // o PROGRAMADO). Si no existe ninguno, retorna null.
-    private static Viaje obtenerViajeActivo(String usuario) {
-
-        MensajeUber respuesta =
-                enviarPeticion(
-                        new MensajeUber(
-                                TipoMensaje.CONSULTAR_VIAJES,
-                                usuario,
-                                null
-                        )
-                );
-
-        if (respuesta.getAccion() == TipoMensaje.ERROR) {
-            return null;
-        }
-
-        @SuppressWarnings("unchecked")
-        List<Viaje> lista =
-                (List<Viaje>) respuesta.getPayload();
-
-        for (Viaje v : lista) {
-            EstadoViaje estado = v.getEstado();
-            if (estado == EstadoViaje.EN_CURSO
-                    || estado == EstadoViaje.PENDIENTE
-                    || estado == EstadoViaje.PROGRAMADO) {
-                return v;
-            }
-        }
-
-        return null;
-    }
-
-    // Imprime todos los viajes del pasajero.
-    private static void imprimirListaViajes(String usuario) {
-
-        MensajeUber respuesta =
-                enviarPeticion(
-                        new MensajeUber(
-                                TipoMensaje.CONSULTAR_VIAJES,
-                                usuario,
-                                null
-                        )
-                );
-
-        @SuppressWarnings("unchecked")
-        List<Viaje> lista =
-                (List<Viaje>) respuesta.getPayload();
-
-        System.out.println("\n=== LISTA DE VIAJES ===");
-
-        if (lista.isEmpty()) {
-            System.out.println("No existen viajes registrados.");
-        } else {
-            for (Viaje v : lista) {
-                System.out.println(v);
-            }
-        }
-    }
-
-    private static MensajeUber enviarPeticion(
-            MensajeUber peticion) {
-
-        int intentos = 0;
-
-        while (intentos < MAX_REINTENTOS) {
-
+        for (int intento = 1; intento <= MAX_INTENTOS; intento++) {
             try (
-                    Socket socket =
-                            new Socket(IP_SERVIDOR, PUERTO);
-
-                    ObjectOutputStream out =
-                            new ObjectOutputStream(
-                                    socket.getOutputStream()
-                            );
-
-                    ObjectInputStream in =
-                            new ObjectInputStream(
-                                    socket.getInputStream()
-                            )
+                    Socket socket = new Socket(IP_SERVIDOR, PUERTO);
+                    ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
+                    ObjectInputStream in = new ObjectInputStream(socket.getInputStream())
             ) {
-
                 socket.setSoTimeout(5000);
 
+                // 1. Enviamos la petición al servidor
                 out.writeObject(peticion);
                 out.flush();
 
-                Object primerObjeto = in.readObject();
-
-                if (primerObjeto instanceof MensajeUber) {
-                    MensajeUber mensaje = (MensajeUber) primerObjeto;
-
-                    if (mensaje.getAccion() == TipoMensaje.ACK &&
-                            peticion.getRequestId().equals(mensaje.getRequestId())) {
-
-                        Object segundoObjeto = in.readObject();
-
-                        if (segundoObjeto instanceof MensajeUber) {
-                            MensajeUber respuesta = (MensajeUber) segundoObjeto;
-                            if (peticion.getRequestId().equals(respuesta.getRequestId())) {
-                                return respuesta;
-                            }
-                        }
-                    } else if (mensaje.getRequestId() != null &&
-                            mensaje.getRequestId().equals(peticion.getRequestId())) {
-
-                        return mensaje;
-                    }
+                // 2. PRIMERA LECTURA: Recibimos el ACK
+                MensajeUber ack = (MensajeUber) in.readObject();
+                if (ack.getAccion() == TipoMensaje.ACK) {
+                    System.out.println("   [RED] ACK recibido: El servidor está procesando la solicitud...");
                 }
 
-                throw new Exception("Respuesta inválida del servidor");
+                // Simulamos el tiempo de espera de red
+                Thread.sleep(1000);
+
+                // 3. SEGUNDA LECTURA: Recibimos la respuesta real
+                MensajeUber respuesta = (MensajeUber) in.readObject();
+                System.out.println("✅ [UBER]: " + respuesta.getPayload().toString());
+
+                return; // Éxito, salimos del loop
 
             } catch (Exception e) {
-
-                intentos++;
-
-                System.err.println(
-                        "[CLIENTE] Intento " + intentos + ": "
-                                + e.getMessage()
-                );
-
-                if (intentos >= MAX_REINTENTOS) {
-                    break;
+                System.err.println("❌ [INTENTO " + intento + "/" + MAX_INTENTOS + "]: " + e.getMessage());
+                if (intento == MAX_INTENTOS) {
+                    System.err.println("❌ [ERROR CRÍTICO]: Falla definitiva tras " + MAX_INTENTOS + " intentos. Servidor desconectado.");
+                } else {
+                    System.err.println("   Reintentando...");
                 }
             }
         }
-
-        return new MensajeUber(
-                TipoMensaje.ERROR,
-                "CLIENTE",
-                "No fue posible conectar con el servidor después de "
-                        + MAX_REINTENTOS + " intentos"
-        );
     }
 }

@@ -70,10 +70,7 @@ public class ServidorUber {
                 );
 
                 pool.execute(
-                        new ManejadorCliente(
-                                socketCliente,
-                                gestor
-                        )
+                        new ManejadorCliente(socketCliente, gestor)
                 );
 
             } catch (IOException e) {

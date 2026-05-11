@@ -5,7 +5,6 @@ import uber.shared.*;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
-import java.util.List;
 
 
 public class ManejadorCliente implements Runnable {
@@ -20,139 +19,34 @@ public class ManejadorCliente implements Runnable {
 
     @Override
     public void run() {
-
         try (
-                ObjectOutputStream out =
-                        new ObjectOutputStream(socketCliente.getOutputStream());
-
-                ObjectInputStream in =
-                        new ObjectInputStream(socketCliente.getInputStream())
+                ObjectOutputStream out = new ObjectOutputStream(socketCliente.getOutputStream());
+                ObjectInputStream in = new ObjectInputStream(socketCliente.getInputStream())
         ) {
-
-            MensajeUber peticion =
-                    (MensajeUber) in.readObject();
+            MensajeUber peticion = (MensajeUber) in.readObject();
 
             System.out.println(
                     "[HILO " + Thread.currentThread().getId() + "] " +
-                            "Petición: " +
-                            peticion.getAccion() +
-                            " de " +
-                            peticion.getIdUsuario() +
+                            "Petición: " + peticion.getAccion() +
+                            " de " + peticion.getIdUsuario() +
                             " (requestId=" + peticion.getRequestId() + ")"
             );
 
-            out.writeObject(
-                    new MensajeUber(
-                            TipoMensaje.ACK,
-                            "SERVIDOR",
-                            "RECIBIDO",
-                            peticion.getRequestId()
-                    )
-            );
+            // ACK para mitigar fallos
+            out.writeObject(new MensajeUber(TipoMensaje.ACK, "SERVIDOR", "RECIBIDO", peticion.getRequestId()));
             out.flush();
-            switch (peticion.getAccion()) {
 
-                case SOLICITAR_VIAJE:
+            // LA MAGIA DE TU COMPAÑERO: Toda la lógica de negocio se procesa acá
+            MensajeUber respuesta = gestor.procesarPeticion(peticion);
 
-                    SolicitudViaje solicitudInmediata =
-                            (SolicitudViaje) peticion.getPayload();
-
-                    Viaje viajeInmediato =
-                            gestor.solicitarViaje(
-                                    peticion.getIdUsuario(),
-                                    solicitudInmediata
-                            );
-
-                    out.writeObject(
-                            new MensajeUber(
-                                    TipoMensaje.RESPUESTA_VIAJE,
-                                    "SERVIDOR",
-                                    viajeInmediato
-                            )
-                    );
-
-                    break;
-
-                case PROGRAMAR_VIAJE:
-
-                    SolicitudViaje solicitudProgramada =
-                            (SolicitudViaje) peticion.getPayload();
-
-                    Viaje viajeProgramado =
-                            gestor.programarViaje(
-                                    peticion.getIdUsuario(),
-                                    solicitudProgramada
-                            );
-
-                    out.writeObject(
-                            new MensajeUber(
-                                    TipoMensaje.RESPUESTA_PROGRAMAR,
-                                    "SERVIDOR",
-                                    viajeProgramado
-                            )
-                    );
-
-                    break;
-
-                case CONSULTAR_VIAJES:
-
-                    List<Viaje> viajes =
-                            gestor.consultarViajes(
-                                    peticion.getIdUsuario()
-                            );
-
-                    out.writeObject(
-                            new MensajeUber(
-                                    TipoMensaje.RESPUESTA_CONSULTA,
-                                    "SERVIDOR",
-                                    viajes
-                            )
-                    );
-
-                    break;
-
-                case FINALIZAR_VIAJE:
-
-                    Integer idViaje =
-                            (Integer) peticion.getPayload();
-
-                    String resultado =
-                            gestor.finalizarViaje(
-                                    idViaje,
-                                    peticion.getIdUsuario()
-                            );
-
-                    out.writeObject(
-                            new MensajeUber(
-                                    TipoMensaje.RESPUESTA_FINALIZAR,
-                                    "SERVIDOR",
-                                    resultado
-                            )
-                    );
-
-                    break;
-
-            MensajeUber respuesta =
-                    gestor.procesarPeticion(peticion);
-
+            // Enviamos la respuesta final al cliente
             out.writeObject(respuesta);
 
         } catch (Exception e) {
-
-            System.err.println(
-                    "[HILO " +
-                            Thread.currentThread().getId() +
-                            "] Error con cliente: " +
-                            e.getMessage()
-            );
-
+            System.err.println("[HILO " + Thread.currentThread().getId() + "] Error con cliente: " + e.getMessage());
+            e.printStackTrace();
         } finally {
-
-            try {
-                socketCliente.close();
-            } catch (Exception e) {
-                // Ignorar
-            }
+            try { socketCliente.close(); } catch (Exception ignored) {}
         }
     }
 }

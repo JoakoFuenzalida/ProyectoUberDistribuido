@@ -24,7 +24,7 @@ public class GestorUber {
     private final Map<Integer, Viaje> viajes;
 
     // Cache de respuestas para peticiones repetidas
-    private Map<String, MensajeUber> cacheRespuestas;
+    private final Map<String, MensajeUber> cacheRespuestas;
 
     // Generador automático de IDs
     private final AtomicInteger generadorId;
@@ -82,8 +82,7 @@ public class GestorUber {
             return viaje;
         }
 
-        String conductor =
-                conductoresDisponibles.remove(0);
+        String conductor = conductoresDisponibles.remove(0);
 
         viaje.setConductor(conductor);
 
@@ -111,39 +110,37 @@ public class GestorUber {
 
         switch (peticion.getAccion()) {
             case SOLICITAR_VIAJE: {
-                SolicitudViaje solicitudInmediata =
-                        (SolicitudViaje) peticion.getPayload();
+                // 1. BLOQUEO DE SEGURIDAD
+                if (tieneViajeActivo(peticion.getIdUsuario())) {
+                    respuesta = new MensajeUber(
+                            TipoMensaje.ERROR,
+                            "SERVIDOR",
+                            "Operación denegada: Ya tienes un viaje activo (en curso o programado). Finalízalo antes de pedir otro.",
+                            requestId
+                    );
+                    break;
+                }
 
-                Viaje viajeInmediato =
-                        solicitarViaje(
-                                peticion.getIdUsuario(),
-                                solicitudInmediata
-                        );
-
-                respuesta = new MensajeUber(
-                        TipoMensaje.RESPUESTA_VIAJE,
-                        "SERVIDOR",
-                        viajeInmediato,
-                        requestId
-                );
+                // 2. FLUJO NORMAL
+                SolicitudViaje solicitudInmediata = (SolicitudViaje) peticion.getPayload();
+                Viaje viajeInmediato = solicitarViaje(peticion.getIdUsuario(), solicitudInmediata);
+                respuesta = new MensajeUber(TipoMensaje.RESPUESTA_VIAJE, "SERVIDOR", viajeInmediato, requestId);
                 break;
             }
             case PROGRAMAR_VIAJE: {
-                SolicitudViaje solicitudProgramada =
-                        (SolicitudViaje) peticion.getPayload();
 
-                Viaje viajeProgramado =
-                        programarViaje(
-                                peticion.getIdUsuario(),
-                                solicitudProgramada
-                        );
-
-                respuesta = new MensajeUber(
-                        TipoMensaje.RESPUESTA_PROGRAMAR,
-                        "SERVIDOR",
-                        viajeProgramado,
-                        requestId
-                );
+                if (tieneViajeActivo(peticion.getIdUsuario())) {
+                    respuesta = new MensajeUber(
+                            TipoMensaje.ERROR,
+                            "SERVIDOR",
+                            "Operación denegada: Ya tienes un viaje activo (en curso o programado). Finalízalo antes de pedir otro.",
+                            requestId
+                    );
+                    break;
+                }
+                SolicitudViaje solicitudProgramada = (SolicitudViaje) peticion.getPayload();
+                Viaje viajeProgramado = programarViaje(peticion.getIdUsuario(), solicitudProgramada);
+                respuesta = new MensajeUber(TipoMensaje.RESPUESTA_PROGRAMAR, "SERVIDOR", viajeProgramado, requestId);
                 break;
             }
             case CONSULTAR_VIAJES: {
@@ -161,15 +158,13 @@ public class GestorUber {
                 break;
             }
             case FINALIZAR_VIAJE: {
-                Integer idViaje =
-                        (Integer) peticion.getPayload();
 
-                finalizarViaje(idViaje);
+                String resultado = finalizarViajeAutomatico(peticion.getIdUsuario());
 
                 respuesta = new MensajeUber(
                         TipoMensaje.RESPUESTA_FINALIZAR,
                         "SERVIDOR",
-                        "Viaje finalizado correctamente",
+                        resultado,
                         requestId
                 );
                 break;
@@ -337,5 +332,45 @@ public class GestorUber {
                 + " finalizado correctamente. "
                 + "Conductor " + viaje.getConductor()
                 + " liberado.";
+    }
+    // =========================================
+    // VALIDACIÓN DE ESTADO DEL USUARIO
+    // =========================================
+    private synchronized boolean tieneViajeActivo(String pasajero) {
+        for (Viaje viaje : viajes.values()) {
+            // Si el viaje es de este pasajero y NO está finalizado, significa que está activo
+            if (viaje.getPasajero().equals(pasajero) && viaje.getEstado() != EstadoViaje.FINALIZADO) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // =========================================
+    // FINALIZAR VIAJE AUTOMÁTICO (Sin pedir ID)
+    // =========================================
+    public synchronized String finalizarViajeAutomatico(String pasajero) {
+        Viaje viajeActivo = null;
+
+        // Buscamos cuál es el viaje que este pasajero tiene actualmente EN CURSO
+        for (Viaje viaje : viajes.values()) {
+            if (viaje.getPasajero().equals(pasajero) && viaje.getEstado() == EstadoViaje.EN_CURSO) {
+                viajeActivo = viaje;
+                break;
+            }
+        }
+
+        if (viajeActivo == null) {
+            return "No tienes ningún viaje EN CURSO en este momento para finalizar.";
+        }
+
+        // Finalizamos el viaje encontrado y liberamos al conductor
+        viajeActivo.setEstado(EstadoViaje.FINALIZADO);
+        if (viajeActivo.getConductor() != null) {
+            conductoresDisponibles.add(viajeActivo.getConductor());
+        }
+
+        System.out.println("[GESTOR] Viaje finalizado automáticamente: " + viajeActivo);
+        return "Viaje finalizado correctamente. Conductor " + viajeActivo.getConductor() + " ha sido liberado.";
     }
 }
