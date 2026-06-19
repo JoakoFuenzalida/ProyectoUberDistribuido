@@ -11,18 +11,20 @@ public class MensajeUber implements Serializable {
     private String idUsuario;
     private Object payload;
     private String requestId;
+    private int relojLogico;
 
     public MensajeUber(TipoMensaje accion,
                        String idUsuario,
                        Object payload) {
 
-        this(accion, idUsuario, payload, null);
+        this(accion, idUsuario, payload, null, 0);
     }
 
     public MensajeUber(TipoMensaje accion,
                        String idUsuario,
                        Object payload,
-                       String requestId) {
+                       String requestId,
+                       int relojLogico) {
 
         this.accion = accion;
         this.idUsuario = idUsuario;
@@ -30,6 +32,7 @@ public class MensajeUber implements Serializable {
         this.requestId = (requestId == null || requestId.isEmpty())
                 ? UUID.randomUUID().toString()
                 : requestId;
+        this.relojLogico = relojLogico;
     }
 
     public TipoMensaje getAccion() {
@@ -47,4 +50,6 @@ public class MensajeUber implements Serializable {
     public String getRequestId() {
         return requestId;
     }
+
+    public int getRelojLogico() { return relojLogico; }
 }

@@ -32,6 +32,9 @@ public class GestorUber {
     // Scheduler para viajes programados
     private final ScheduledExecutorService scheduler;
 
+    // Reloj de Lamport Local
+    private final AtomicInteger relojLocal;
+
     public GestorUber() {
 
         conductoresDisponibles = new ArrayList<>();
@@ -48,55 +51,54 @@ public class GestorUber {
         conductoresDisponibles.add("Conductor_Juan");
         conductoresDisponibles.add("Conductor_Maria");
         conductoresDisponibles.add("Conductor_Pedro");
+
+        relojLocal = new AtomicInteger(0);
     }
+
 
     // =========================================
     // SOLICITAR VIAJE INMEDIATO
     // =========================================
 
-    public synchronized Viaje solicitarViaje(
-            String pasajero,
-            SolicitudViaje solicitud) {
+    // RELOJES LÓGICOS DE LAMPORT
 
+    public synchronized int obtenerEIncrementarReloj() {
+        // Regla LC1: Evento interno o envío de mensaje
+        return relojLocal.incrementAndGet();
+    }
+
+    public synchronized void sincronizarReloj(int relojMensaje) {
+        // Regla LC2: Recepción de mensaje
+        int relojActual = relojLocal.get();
+        int nuevoReloj = Math.max(relojActual, relojMensaje) + 1;
+        relojLocal.set(nuevoReloj);
+    }
+
+    public synchronized Viaje solicitarViaje(String pasajero, SolicitudViaje solicitud) {
         int id = generadorId.getAndIncrement();
+        // Al procesar un viaje, ocurre un evento interno
+        int tiempoLogico = obtenerEIncrementarReloj();
 
-        Viaje viaje = new Viaje(
-                id,
-                pasajero,
-                solicitud.getOrigen(),
-                solicitud.getDestino(),
-                false,
-                null
-        );
+        Viaje viaje = new Viaje(id, pasajero, solicitud.getOrigen(), solicitud.getDestino(), false, null);
 
         if (conductoresDisponibles.isEmpty()) {
-
             viaje.setEstado(EstadoViaje.PENDIENTE);
-
             viajes.put(id, viaje);
-
-            System.out.println(
-                    "[GESTOR] No hay conductores disponibles."
-            );
-
+            System.out.println("[LC: " + tiempoLogico + "] [GESTOR] Solicitud pendiente. No hay conductores.");
             return viaje;
         }
 
         String conductor = conductoresDisponibles.remove(0);
-
         viaje.setConductor(conductor);
-
         viaje.setEstado(EstadoViaje.EN_CURSO);
-
         viajes.put(id, viaje);
 
-        System.out.println(
-                "[GESTOR] Viaje iniciado: "
-                        + viaje
-        );
+        System.out.println("[LC: " + tiempoLogico + "] [GESTOR] Viaje iniciado: " + viaje);
 
         return viaje;
     }
+
+
     public synchronized MensajeUber procesarPeticion(
             MensajeUber peticion) {
 
@@ -107,6 +109,7 @@ public class GestorUber {
         }
 
         MensajeUber respuesta;
+        int tiempoRespuesta = obtenerEIncrementarReloj();
 
         switch (peticion.getAccion()) {
             case SOLICITAR_VIAJE: {
@@ -116,7 +119,8 @@ public class GestorUber {
                             TipoMensaje.ERROR,
                             "SERVIDOR",
                             "Operación denegada: Ya tienes un viaje activo (en curso o programado). Finalízalo antes de pedir otro.",
-                            requestId
+                            requestId,
+                            tiempoRespuesta
                     );
                     break;
                 }
@@ -124,7 +128,7 @@ public class GestorUber {
                 // 2. FLUJO NORMAL
                 SolicitudViaje solicitudInmediata = (SolicitudViaje) peticion.getPayload();
                 Viaje viajeInmediato = solicitarViaje(peticion.getIdUsuario(), solicitudInmediata);
-                respuesta = new MensajeUber(TipoMensaje.RESPUESTA_VIAJE, "SERVIDOR", viajeInmediato, requestId);
+                respuesta = new MensajeUber(TipoMensaje.RESPUESTA_VIAJE, "SERVIDOR", viajeInmediato, requestId, tiempoRespuesta);
                 break;
             }
             case PROGRAMAR_VIAJE: {
@@ -134,13 +138,14 @@ public class GestorUber {
                             TipoMensaje.ERROR,
                             "SERVIDOR",
                             "Operación denegada: Ya tienes un viaje activo (en curso o programado). Finalízalo antes de pedir otro.",
-                            requestId
+                            requestId,
+                            tiempoRespuesta
                     );
                     break;
                 }
                 SolicitudViaje solicitudProgramada = (SolicitudViaje) peticion.getPayload();
                 Viaje viajeProgramado = programarViaje(peticion.getIdUsuario(), solicitudProgramada);
-                respuesta = new MensajeUber(TipoMensaje.RESPUESTA_PROGRAMAR, "SERVIDOR", viajeProgramado, requestId);
+                respuesta = new MensajeUber(TipoMensaje.RESPUESTA_PROGRAMAR, "SERVIDOR", viajeProgramado, requestId, tiempoRespuesta);
                 break;
             }
             case CONSULTAR_VIAJES: {
@@ -153,7 +158,8 @@ public class GestorUber {
                         TipoMensaje.RESPUESTA_CONSULTA,
                         "SERVIDOR",
                         viajesUsuario,
-                        requestId
+                        requestId,
+                        tiempoRespuesta
                 );
                 break;
             }
@@ -165,7 +171,8 @@ public class GestorUber {
                         TipoMensaje.RESPUESTA_FINALIZAR,
                         "SERVIDOR",
                         resultado,
-                        requestId
+                        requestId,
+                        tiempoRespuesta
                 );
                 break;
             }
@@ -174,7 +181,8 @@ public class GestorUber {
                         TipoMensaje.ERROR,
                         "SERVIDOR",
                         "Acción desconocida",
-                        requestId
+                        requestId,
+                        tiempoRespuesta
                 );
         }
 
