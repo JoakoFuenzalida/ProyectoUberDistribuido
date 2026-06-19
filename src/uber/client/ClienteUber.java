@@ -11,7 +11,8 @@ import java.util.UUID;
 
 public class ClienteUber {
     private static final String IP_SERVIDOR = "127.0.0.1";
-    private static final int PUERTO = 5000;
+    private static final int[] PUERTOS_DISPONIBLES = {5000, 5001, 5002};
+    private static int indiceNodoActual = 0;
 
     public static void main(String[] args) {
         Scanner scanner = new Scanner(System.in);
@@ -55,7 +56,7 @@ public class ClienteUber {
                         String destino = scanner.nextLine();
 
                         SolicitudViaje solicitud = new SolicitudViaje(origen, destino, true, null );
-                        peticion = new MensajeUber(TipoMensaje.SOLICITAR_VIAJE, idUsuario, solicitud, requestId);
+                        peticion = new MensajeUber(TipoMensaje.SOLICITAR_VIAJE, idUsuario, solicitud, requestId, 0);
                         System.out.println("\n📡 Buscando conductores cercanos...");
                         break;
                     }
@@ -102,18 +103,18 @@ public class ClienteUber {
                         }
 
                         SolicitudViaje solicitud = new SolicitudViaje(origen, destino, true, fecha);
-                        peticion = new MensajeUber(TipoMensaje.PROGRAMAR_VIAJE, idUsuario, solicitud, requestId);
+                        peticion = new MensajeUber(TipoMensaje.PROGRAMAR_VIAJE, idUsuario, solicitud, requestId, 0);
                         // Mostramos la fecha final formateada para que se vea limpio
                         System.out.println("\n📡 Programando tu viaje para: " + fecha.toString().replace("T", " "));
                         break;
                     }
                     case "3": {
-                        peticion = new MensajeUber(TipoMensaje.CONSULTAR_VIAJES, idUsuario, null, requestId);
+                        peticion = new MensajeUber(TipoMensaje.CONSULTAR_VIAJES, idUsuario, null, requestId, 0);
                         System.out.println("\n📡 Consultando la base de datos...");
                         break;
                     }
                     case "4": {
-                        peticion = new MensajeUber(TipoMensaje.FINALIZAR_VIAJE, idUsuario, null, requestId);
+                        peticion = new MensajeUber(TipoMensaje.FINALIZAR_VIAJE, idUsuario, null, requestId, 0);
                         System.out.println("\n📡 Procesando pago y liberando conductor...");
                         break;
                     }
@@ -132,11 +133,14 @@ public class ClienteUber {
     }
 
     private static void enviarPeticion(MensajeUber peticion) {
-        int MAX_INTENTOS = 3;
+        int nodosProbados = 0;
 
-        for (int intento = 1; intento <= MAX_INTENTOS; intento++) {
+        // Intentaremos conectar iterando por todos los nodos conocidos
+        while (nodosProbados < PUERTOS_DISPONIBLES.length) {
+            int puertoDestino = PUERTOS_DISPONIBLES[indiceNodoActual];
+
             try (
-                    Socket socket = new Socket(IP_SERVIDOR, PUERTO);
+                    Socket socket = new Socket(IP_SERVIDOR, puertoDestino);
                     ObjectOutputStream out = new ObjectOutputStream(socket.getOutputStream());
                     ObjectInputStream in = new ObjectInputStream(socket.getInputStream())
             ) {
@@ -149,7 +153,7 @@ public class ClienteUber {
                 // 2. PRIMERA LECTURA: Recibimos el ACK
                 MensajeUber ack = (MensajeUber) in.readObject();
                 if (ack.getAccion() == TipoMensaje.ACK) {
-                    System.out.println("   [RED] ACK recibido: El servidor está procesando la solicitud...");
+                    System.out.println("   [RED] ACK recibido del puerto " + puertoDestino + ": Procesando solicitud...");
                 }
 
                 // Simulamos el tiempo de espera de red
@@ -159,16 +163,21 @@ public class ClienteUber {
                 MensajeUber respuesta = (MensajeUber) in.readObject();
                 System.out.println("✅ [UBER]: " + respuesta.getPayload().toString());
 
-                return; // Éxito, salimos del loop
+                return; // Éxito total, salimos del ciclo y del metodo
 
             } catch (Exception e) {
-                System.err.println("❌ [INTENTO " + intento + "/" + MAX_INTENTOS + "]: " + e.getMessage());
-                if (intento == MAX_INTENTOS) {
-                    System.err.println("❌ [ERROR CRÍTICO]: Falla definitiva tras " + MAX_INTENTOS + " intentos. Servidor desconectado.");
-                } else {
-                    System.err.println("   Reintentando...");
-                }
+                System.err.println("⚠️ [RED] Nodo en puerto " + puertoDestino + " no responde. Buscando otro nodo activo...");
+
+                // Rotamos al siguiente nodo en la lista (0 -> 1 -> 2 -> 0)
+                indiceNodoActual = (indiceNodoActual + 1) % PUERTOS_DISPONIBLES.length;
+                nodosProbados++;
             }
         }
+
+        // Si salimos del while, significa que recorrimos los 3 puertos y todos fallaron
+        System.err.println("❌ [ERROR CRÍTICO]: Todos los nodos del sistema están caídos. Uber fuera de servicio temporalmente.");
     }
+
+
+
 }

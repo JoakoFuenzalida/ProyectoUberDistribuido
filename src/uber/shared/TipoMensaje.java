@@ -13,5 +13,8 @@ public enum TipoMensaje {
     RESPUESTA_FINALIZAR,
 
     ACK,
-    ERROR
+    ERROR,
+
+    HEARTBEAT,
+    HEARTBEAT_ACK
 }
