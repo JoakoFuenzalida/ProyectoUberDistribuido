@@ -14,6 +14,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 
 public class GestorUber {
 
@@ -35,7 +36,25 @@ public class GestorUber {
     // Reloj de Lamport Local
     private final AtomicInteger relojLocal;
 
-    public GestorUber() {
+    // Identidad del nodo dueño de este Gestor (para Bully y reenvío al líder)
+    private final String idNodoLocal;
+    private final int puertoLocal;
+
+    // Estado de liderazgo (Bully)
+    private volatile String liderId;
+    private volatile int liderPuerto = -1;
+    private volatile boolean eleccionEnCurso = false;
+
+    // Métrica: cantidad de mensajes de coordinación enviados (ELECTION/ELECTION_OK/COORDINATOR)
+    private final AtomicInteger contadorMensajesCoordinacion = new AtomicInteger(0);
+
+    // Hook invocado tras cada mutación de estado, para que el nodo replique a sus seguidores
+    private volatile Consumer<Viaje> onCambioEstado;
+
+    public GestorUber(String idNodo, int puerto) {
+
+        this.idNodoLocal = idNodo;
+        this.puertoLocal = puerto;
 
         conductoresDisponibles = new ArrayList<>();
 
@@ -53,6 +72,97 @@ public class GestorUber {
         conductoresDisponibles.add("Conductor_Pedro");
 
         relojLocal = new AtomicInteger(0);
+    }
+
+    // =========================================
+    // LIDERAZGO (ALGORITMO BULLY)
+    // =========================================
+
+    public void setListenerReplicacion(Consumer<Viaje> listener) {
+        this.onCambioEstado = listener;
+    }
+
+    private void notificarCambioEstado(Viaje viaje) {
+        Consumer<Viaje> listener = onCambioEstado;
+        if (listener != null && viaje != null) {
+            listener.accept(viaje);
+        }
+    }
+
+    public synchronized boolean esLider() {
+        return idNodoLocal.equals(liderId);
+    }
+
+    public synchronized String obtenerLiderId() {
+        return liderId;
+    }
+
+    public synchronized int obtenerLiderPuerto() {
+        return liderPuerto;
+    }
+
+    public synchronized void marcarComoLider() {
+        this.liderId = idNodoLocal;
+        this.liderPuerto = puertoLocal;
+        this.eleccionEnCurso = false;
+        recalibrarGeneradorId();
+        System.out.println("[BULLY] " + idNodoLocal + " se autoproclama LÍDER (puerto " + puertoLocal + ").");
+    }
+
+    public synchronized void registrarLiderExterno(String id, int puerto) {
+        this.liderId = id;
+        this.liderPuerto = puerto;
+        this.eleccionEnCurso = false;
+        System.out.println("[BULLY] Nuevo líder reconocido: " + id + " (puerto " + puerto + ").");
+    }
+
+    public synchronized boolean iniciarEleccionSiNoHayUnaEnCurso() {
+        if (eleccionEnCurso) {
+            return false;
+        }
+        eleccionEnCurso = true;
+        return true;
+    }
+
+    public synchronized void finalizarEleccionEnCurso() {
+        this.eleccionEnCurso = false;
+    }
+
+    public void incrementarContadorCoordinacion() {
+        contadorMensajesCoordinacion.incrementAndGet();
+    }
+
+    public int obtenerContadorCoordinacion() {
+        return contadorMensajesCoordinacion.get();
+    }
+
+    private void recalibrarGeneradorId() {
+        int maxId = 0;
+        for (Integer id : viajes.keySet()) {
+            if (id > maxId) {
+                maxId = id;
+            }
+        }
+        generadorId.set(maxId + 1);
+    }
+
+    // =========================================
+    // REPLICACIÓN DE ESTADO (LÍDER -> SEGUIDORES)
+    // =========================================
+
+    public synchronized List<String> obtenerSnapshotConductores() {
+        return new ArrayList<>(conductoresDisponibles);
+    }
+
+    public synchronized void aplicarReplicacion(Viaje viaje, List<String> conductoresSnapshot, int relojRecibido) {
+        sincronizarReloj(relojRecibido);
+        if (viaje != null) {
+            viajes.put(viaje.getId(), viaje);
+        }
+        if (conductoresSnapshot != null) {
+            conductoresDisponibles.clear();
+            conductoresDisponibles.addAll(conductoresSnapshot);
+        }
     }
 
 
@@ -85,6 +195,7 @@ public class GestorUber {
             viaje.setEstado(EstadoViaje.PENDIENTE);
             viajes.put(id, viaje);
             System.out.println("[LC: " + tiempoLogico + "] [GESTOR] Solicitud pendiente. No hay conductores.");
+            notificarCambioEstado(viaje);
             return viaje;
         }
 
@@ -95,6 +206,7 @@ public class GestorUber {
 
         System.out.println("[LC: " + tiempoLogico + "] [GESTOR] Viaje iniciado: " + viaje);
 
+        notificarCambioEstado(viaje);
         return viaje;
     }
 
@@ -176,6 +288,16 @@ public class GestorUber {
                 );
                 break;
             }
+            case CONSULTAR_METRICAS: {
+                respuesta = new MensajeUber(
+                        TipoMensaje.RESPUESTA_METRICAS,
+                        "SERVIDOR",
+                        obtenerContadorCoordinacion(),
+                        requestId,
+                        tiempoRespuesta
+                );
+                break;
+            }
             default:
                 respuesta = new MensajeUber(
                         TipoMensaje.ERROR,
@@ -232,6 +354,7 @@ public class GestorUber {
                         + viaje
         );
 
+        notificarCambioEstado(viaje);
         return viaje;
     }
 
@@ -257,6 +380,7 @@ public class GestorUber {
                             + idViaje
             );
 
+            notificarCambioEstado(viaje);
             return;
         }
 
@@ -271,6 +395,8 @@ public class GestorUber {
                 "[SCHEDULER] Viaje programado en curso: "
                         + viaje
         );
+
+        notificarCambioEstado(viaje);
     }
 
     // =========================================
@@ -336,6 +462,7 @@ public class GestorUber {
                         + viaje
         );
 
+        notificarCambioEstado(viaje);
         return "Viaje #" + idViaje
                 + " finalizado correctamente. "
                 + "Conductor " + viaje.getConductor()
@@ -379,6 +506,7 @@ public class GestorUber {
         }
 
         System.out.println("[GESTOR] Viaje finalizado automáticamente: " + viajeActivo);
+        notificarCambioEstado(viajeActivo);
         return "Viaje finalizado correctamente. Conductor " + viajeActivo.getConductor() + " ha sido liberado.";
     }
 }

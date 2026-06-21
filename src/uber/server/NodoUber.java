@@ -2,10 +2,12 @@ package uber.server;
 
 import uber.shared.MensajeUber;
 import uber.shared.TipoMensaje;
+import uber.shared.Viaje;
 
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.HashMap;
@@ -39,20 +41,31 @@ public class NodoUber {
         puerto = Integer.parseInt(args[0]);
         idNodo = args[1];
 
-        GestorUber gestor = new GestorUber();
-        ExecutorService pool = Executors.newFixedThreadPool(10);
+        GestorUber gestor = new GestorUber(idNodo, puerto);
+        Coordinador coordinador = new Coordinador(gestor, idNodo, puerto, RedConfig.NODOS_VECINOS);
+
+        // Cada vez que el líder muta el estado, replica el resultado a sus seguidores
+        gestor.setListenerReplicacion(viaje -> {
+            if (gestor.esLider()) {
+                List<String> snapshot = gestor.obtenerSnapshotConductores();
+                new Thread(() -> coordinador.replicarEstado(viaje, snapshot)).start();
+            }
+        });
+
+        ExecutorService pool = Executors.newFixedThreadPool(60);
 
         try (ServerSocket serverSocket = new ServerSocket(puerto)) {
             System.out.println("=====================================");
             System.out.println("     NODO UBER DISTRIBUIDO INICIADO   ");
             System.out.println(" ID Nodo: " + idNodo);
             System.out.println(" Puerto Escucha: " + puerto);
+            System.out.println(" PID: " + ProcessHandle.current().pid());
             System.out.println("=====================================");
 
             // Hito inicial: Ejecutar un hilo que intente conectar con los vecinos
-            conectarConVecinos(gestor);
+            conectarConVecinos(gestor, coordinador);
 
-            escucharConexiones(serverSocket, pool, gestor);
+            escucharConexiones(serverSocket, pool, gestor, coordinador);
 
         } catch (IOException e) {
             System.err.println("[NODO " + idNodo + "] Error en el puerto " + puerto + ": " + e.getMessage());
@@ -62,14 +75,14 @@ public class NodoUber {
         }
     }
 
-    private static void escucharConexiones(ServerSocket serverSocket, ExecutorService pool, GestorUber gestor) {
+    private static void escucharConexiones(ServerSocket serverSocket, ExecutorService pool, GestorUber gestor, Coordinador coordinador) {
         while (!serverSocket.isClosed()) {
             try {
                 Socket socketCliente = serverSocket.accept();
                 //System.out.println("[NODO " + idNodo + "] Nueva conexión desde: " + socketCliente.getRemoteSocketAddress());
 
                 // El manejador sigue procesando las peticiones concurrentes
-                pool.execute(new ManejadorCliente(socketCliente, gestor));
+                pool.execute(new ManejadorCliente(socketCliente, gestor, coordinador));
             } catch (IOException e) {
                 if (!serverSocket.isClosed()) {
                     System.err.println("[NODO " + idNodo + "] Error aceptando conexión: " + e.getMessage());
@@ -79,10 +92,12 @@ public class NodoUber {
     }
 
 
-    private static void conectarConVecinos(GestorUber gestor) {
+    private static void conectarConVecinos(GestorUber gestor, Coordinador coordinador) {
         Thread hiloConector = new Thread(() -> {
             System.out.println("[MEMBRESÍA] Iniciando monitoreo de nodos vecinos en la red...");
             try { Thread.sleep(5000); } catch (InterruptedException ignored) {}
+
+            boolean primeraRonda = true;
 
             while (true) {
                 for (Map.Entry<String, Integer> vecino : RedConfig.NODOS_VECINOS.entrySet()) {
@@ -110,8 +125,21 @@ public class NodoUber {
 
                     } catch (Exception e) {
                         System.err.println("❌ [ALERTA] No hay respuesta de " + vecinoId + " en el puerto " + vecinoPuerto + ". Nodo inalcanzable.");
+
+                        // Si el nodo inalcanzable era nuestro líder, disparamos una nueva elección (Bully)
+                        if (vecinoId.equals(gestor.obtenerLiderId())) {
+                            System.out.println("[BULLY] El líder caído era " + vecinoId + ". Disparando nueva elección...");
+                            coordinador.iniciarEleccion();
+                        }
                     }
                 }
+
+                if (primeraRonda) {
+                    // Tras el primer barrido de descubrimiento, establecemos un líder inicial
+                    primeraRonda = false;
+                    coordinador.iniciarEleccion();
+                }
+
                 try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
             }
         });
