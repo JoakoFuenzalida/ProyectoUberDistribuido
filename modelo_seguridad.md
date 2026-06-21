@@ -1,86 +1,222 @@
 # Modelo de Seguridad del Sistema Uber Distribuido
 
+## Descripción General
+
+El sistema opera con tres nodos (NODO_1, NODO_2, NODO_3) coordinados por un líder electo mediante el algoritmo Bully. La comunicación se realiza por sockets TCP con serialización Java nativa. Existen cuatro tipos de canales: peticiones de negocio (cliente → nodo), heartbeats (nodo → nodo), mensajes de elección Bully (nodo → nodo) y replicación de estado (líder → seguidores). Todos transmiten datos en claro.
+
 ## Identificación de Canales Inseguros
 
-Basado en el análisis del código, los principales canales inseguros identificados son:
+### Canal 1: Cliente → Nodo (peticiones de negocio)
 
-1. **Comunicación TCP sin encriptación**: El cliente y servidor utilizan `Socket` estándar sin SSL/TLS, lo que permite la interceptación de datos en tránsito.
-2. **Serialización de objetos**: Uso de `ObjectInputStream` y `ObjectOutputStream` para enviar objetos `MensajeUber`, `SolicitudViaje`, etc., vulnerables a ataques de deserialización insegura.
-3. **Falta de autenticación**: No hay verificación de identidad del cliente o servidor; solo se basa en el nombre de usuario proporcionado.
-4. **Datos sensibles en claro**: Información como origen, destino, usuario y detalles del viaje se transmiten sin cifrado.
+- **Protocolo**: Socket TCP plano, serialización con `ObjectOutputStream`.
+- **Datos expuestos**: Nombre de usuario, origen y destino del viaje, fechas programadas, estados de viaje.
+- **Riesgo**: Cualquier actor en la red local puede capturar las peticiones y leer información personal de los pasajeros.
 
-## Descripción de Amenazas (Ataques Posibles)
+### Canal 2: Nodo → Nodo (heartbeats)
 
-Las amenazas identificadas incluyen:
+- **Protocolo**: Socket TCP plano, objetos `MensajeUber` con tipo HEARTBEAT.
+- **Datos expuestos**: Identificador del nodo, valor del reloj lógico de Lamport.
+- **Riesgo**: Un atacante podría inyectar heartbeats falsos para simular que un nodo está vivo cuando no lo está, o manipular los valores del reloj lógico para desordenar la causalidad.
 
-1. **Eavesdropping (Escucha pasiva)**: Un atacante puede capturar el tráfico de red y leer datos sensibles como solicitudes de viaje y respuestas del servidor.
-2. **Man-in-the-Middle (MITM)**: Interceptar y modificar mensajes en tránsito, por ejemplo, cambiar el destino de un viaje o falsificar respuestas.
-3. **Deserialización insegura**: Enviar objetos serializados maliciosos que puedan ejecutar código arbitrario en el servidor o cliente (e.g., gadget chains).
-4. **Spoofing de identidad**: Falsificar ser el servidor para engañar al cliente o viceversa, ya que no hay autenticación mutua.
-5. **Denegación de Servicio (DoS)**: Enviar múltiples conexiones o mensajes grandes para sobrecargar el servidor o cliente.
-6. **Modificación de datos**: Alterar el estado de viajes o solicitudes durante la transmisión.
+### Canal 3: Nodo → Nodo (elección Bully)
 
-## Propuestas de Mitigación Técnicas en Java
+- **Protocolo**: Socket TCP plano, objetos `MensajeUber` con tipos ELECTION, ELECTION_OK, COORDINATOR.
+- **Datos expuestos**: Identificador y puerto del nodo candidato (`InfoNodo`).
+- **Riesgo**: Un nodo malicioso podría enviar un mensaje COORDINATOR falso para autoproclamarse líder sin haber ganado la elección, secuestrando todas las operaciones de escritura del sistema.
 
-Para mitigar estas amenazas, se proponen las siguientes técnicas implementables en Java:
+### Canal 4: Líder → Seguidores (replicación de estado)
 
-1. **Encriptación con SSL/TLS**:
-   - Reemplazar `Socket` con `SSLSocket` para cifrar la comunicación.
-   - Configurar certificados X.509 para autenticación mutua.
-   - Código ejemplo: Usar `SSLContext` y `KeyManagerFactory` para inicializar sockets seguros.
+- **Protocolo**: Socket TCP plano, objetos `ReplicaEstado` con el viaje afectado y la lista de conductores.
+- **Datos expuestos**: Estado completo del negocio (viajes activos, conductores disponibles).
+- **Riesgo**: Un atacante podría inyectar replicaciones falsas para corromper el estado de los seguidores o interceptar las replicaciones para obtener el estado completo del sistema.
 
-2. **Autenticación y Autorización**:
-   - Implementar autenticación basada en tokens o certificados.
-   - Usar `KeyStore` para gestionar certificados de cliente/servidor.
-   - Verificar identidad antes de procesar solicitudes.
+## Descripción de Amenazas
 
-3. **Validación de Datos y Serialización Segura**:
-   - Evitar deserialización directa; usar formatos seguros como JSON con validación.
-   - Implementar listas blancas de clases permitidas para deserialización.
-   - Usar bibliotecas como Jackson para serialización JSON en lugar de Object Streams.
+| # | Amenaza | Canal afectado | Descripción |
+|---|---|---|---|
+| A1 | Eavesdropping | Todos | Captura pasiva del tráfico TCP para leer datos de viajes, usuarios, estados y configuración de la red de nodos. |
+| A2 | Man-in-the-Middle | Todos | Interceptar y modificar mensajes en tránsito: alterar destinos de viaje, falsificar respuestas, manipular replicaciones. |
+| A3 | Deserialización insegura | Todos | Enviar objetos serializados maliciosos que exploten gadget chains de Java para ejecutar código arbitrario en el nodo receptor. |
+| A4 | Spoofing de nodo | Canales 2, 3, 4 | Suplantar la identidad de un nodo para inyectar heartbeats falsos, ganar una elección fraudulenta o enviar replicaciones corruptas. |
+| A5 | Spoofing de cliente | Canal 1 | Suplantar a un usuario enviando peticiones con su nombre para solicitar o cancelar viajes en su nombre. |
+| A6 | Denegación de Servicio | Canal 1 | Saturar el pool de 60 hilos con conexiones simultáneas, bloqueando a los clientes legítimos. |
+| A7 | Elección fraudulenta | Canal 3 | Enviar un mensaje COORDINATOR con un puerto artificialmente alto para autoproclamarse líder y controlar todas las escrituras. |
+| A8 | Replicación corrupta | Canal 4 | Inyectar mensajes REPLICAR_ESTADO con datos falsos para alterar la lista de viajes o conductores en los seguidores. |
 
-4. **Integridad de Mensajes**:
-   - Firmar mensajes con `Signature` y `PrivateKey` para detectar modificaciones.
-   - Verificar firmas en el receptor usando `PublicKey`.
+## Propuestas de Mitigación en Java
 
-5. **Protección contra DoS**:
-   - Implementar rate limiting en el servidor (e.g., usando `RateLimiter` de Guava).
-   - Limitar el tamaño de mensajes y número de conexiones por IP.
+### 1. Encriptación de canales con SSL/TLS
 
-6. **Mejores Prácticas Generales**:
-   - Usar timeouts en sockets para prevenir bloqueos.
-   - Registrar logs de seguridad para auditoría.
-   - Actualizar dependencias para parches de seguridad.
+Reemplazar `Socket` por `SSLSocket` en todos los canales para cifrar el tráfico y prevenir eavesdropping y MITM.
+
+```java
+// Ejemplo: crear SSLServerSocket
+SSLContext ctx = SSLContext.getInstance("TLS");
+KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
+KeyStore ks = KeyStore.getInstance("JKS");
+ks.load(new FileInputStream("keystore.jks"), password);
+kmf.init(ks, password);
+ctx.init(kmf.getKeyManagers(), null, null);
+SSLServerSocket serverSocket = (SSLServerSocket) ctx.getServerSocketFactory()
+    .createServerSocket(puerto);
+```
+
+**Mitiga**: A1 (eavesdropping), A2 (MITM).
+
+### 2. Autenticación mutua con certificados X.509
+
+Configurar certificados por nodo para que cada conexión entre nodos verifique la identidad del par. El `TrustStore` de cada nodo contiene los certificados de los nodos autorizados.
+
+```java
+// Ejemplo: configurar TrustManager para verificar certificados de nodos
+TrustManagerFactory tmf = TrustManagerFactory.getInstance("SunX509");
+KeyStore trustStore = KeyStore.getInstance("JKS");
+trustStore.load(new FileInputStream("truststore.jks"), password);
+tmf.init(trustStore);
+ctx.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
+```
+
+**Mitiga**: A4 (spoofing de nodo), A7 (elección fraudulenta), A8 (replicación corrupta).
+
+### 3. Autenticación de clientes
+
+Implementar un mecanismo de autenticación basado en tokens para que los clientes demuestren su identidad antes de operar.
+
+```java
+// Ejemplo: verificar token antes de procesar la petición
+String token = peticion.getToken();
+if (!autenticador.verificarToken(token, peticion.getIdUsuario())) {
+    return new MensajeUber(TipoMensaje.ERROR, "SERVIDOR",
+        "Autenticación fallida", requestId, reloj);
+}
+```
+
+**Mitiga**: A5 (spoofing de cliente).
+
+### 4. Serialización segura con filtros
+
+Usar `ObjectInputFilter` (Java 9+) para restringir las clases que se pueden deserializar, bloqueando gadget chains.
+
+```java
+// Ejemplo: filtro de clases permitidas
+ObjectInputStream ois = new ObjectInputStream(socket.getInputStream());
+ois.setObjectInputFilter(info -> {
+    if (info.serialClass() != null) {
+        String name = info.serialClass().getName();
+        if (name.startsWith("uber.shared.")) return ObjectInputFilter.Status.ALLOWED;
+        return ObjectInputFilter.Status.REJECTED;
+    }
+    return ObjectInputFilter.Status.UNDECIDED;
+});
+```
+
+**Mitiga**: A3 (deserialización insegura).
+
+### 5. Protección contra DoS
+
+Limitar conexiones por IP y tamaño de mensajes para evitar la saturación del pool de hilos.
+
+```java
+// Ejemplo: rate limiting por IP
+ConcurrentHashMap<String, AtomicInteger> conexionesPorIp = new ConcurrentHashMap<>();
+String ip = socket.getInetAddress().getHostAddress();
+int count = conexionesPorIp.computeIfAbsent(ip, k -> new AtomicInteger(0))
+    .incrementAndGet();
+if (count > MAX_CONEXIONES_POR_IP) {
+    socket.close();
+    return;
+}
+```
+
+**Mitiga**: A6 (denegación de servicio).
+
+### 6. Firma de mensajes de coordinación
+
+Firmar los mensajes de elección y replicación con clave privada del nodo emisor para que los receptores verifiquen la autenticidad antes de aceptar un COORDINATOR o REPLICAR_ESTADO.
+
+```java
+// Ejemplo: firmar un mensaje de coordinación
+Signature firma = Signature.getInstance("SHA256withRSA");
+firma.initSign(clavePrivada);
+firma.update(mensaje.getBytes());
+byte[] firmaDigital = firma.sign();
+```
+
+**Mitiga**: A7 (elección fraudulenta), A8 (replicación corrupta).
+
+## Matriz de Amenazas y Mitigaciones
+
+| Amenaza | Impacto | Canal | Mitigación |
+|---|---|---|---|
+| A1 Eavesdropping | Exposición de datos de viajes y usuarios | Todos | SSL/TLS |
+| A2 MITM | Modificación de peticiones y respuestas | Todos | SSL/TLS + certificados |
+| A3 Deserialización insegura | Ejecución remota de código | Todos | ObjectInputFilter con whitelist |
+| A4 Spoofing de nodo | Nodo falso se integra a la red | Inter-nodo | Autenticación mutua con X.509 |
+| A5 Spoofing de cliente | Operaciones fraudulentas a nombre de otro usuario | Cliente→Nodo | Autenticación con tokens |
+| A6 DoS | Pool de hilos agotado, servicio inaccesible | Cliente→Nodo | Rate limiting por IP |
+| A7 Elección fraudulenta | Líder ilegítimo controla escrituras | Inter-nodo | Firma digital de mensajes de coordinación |
+| A8 Replicación corrupta | Estado del sistema alterado en seguidores | Líder→Seguidor | Firma digital + autenticación mutua |
 
 ## Diagrama de Modelo de Seguridad
 
 ```mermaid
 flowchart TD
-    A[Cliente] --> B[Socket TCP Inseguro]
-    B --> C[Servidor]
-    B --> D[Amenaza: Eavesdropping]
-    B --> E[Amenaza: MITM]
-    B --> F[Amenaza: Deserialización Insegura]
+    subgraph Canales["Canales del Sistema"]
+        C1[Cliente → Nodo<br/>Peticiones de viaje]
+        C2[Nodo → Nodo<br/>Heartbeats]
+        C3[Nodo → Nodo<br/>Elección Bully]
+        C4[Líder → Seguidores<br/>Replicación de estado]
+    end
 
-    G[Mitigación: SSL/TLS] --> H[SSLSocket Encriptado]
-    H --> I[Autenticación Mutua]
-    I --> J[Validación de Datos]
-    J --> K[Integridad con Firmas]
+    subgraph Amenazas["Amenazas Identificadas"]
+        A1[A1: Eavesdropping]
+        A2[A2: MITM]
+        A3[A3: Deserialización insegura]
+        A4[A4: Spoofing de nodo]
+        A5[A5: Spoofing de cliente]
+        A6[A6: DoS]
+        A7[A7: Elección fraudulenta]
+        A8[A8: Replicación corrupta]
+    end
 
-    D --> L[Impacto: Exposición de Datos]
-    E --> M[Impacto: Modificación de Mensajes]
-    F --> N[Impacto: Ejecución de Código Remoto]
+    subgraph Mitigaciones["Mitigaciones Propuestas"]
+        M1[SSL/TLS con SSLSocket]
+        M2[Certificados X.509 mutuos]
+        M3[ObjectInputFilter whitelist]
+        M4[Tokens de autenticación]
+        M5[Rate limiting por IP]
+        M6[Firma digital RSA]
+    end
 
-    L --> O[Mitigación: Encriptación]
-    M --> P[Mitigación: Firmas Digitales]
-    N --> Q[Mitigación: Serialización Segura]
+    C1 --> A1
+    C1 --> A5
+    C1 --> A6
+    C2 --> A1
+    C2 --> A4
+    C3 --> A7
+    C4 --> A8
+    C1 & C2 & C3 & C4 --> A2
+    C1 & C2 & C3 & C4 --> A3
+
+    A1 --> M1
+    A2 --> M1
+    A2 --> M2
+    A3 --> M3
+    A4 --> M2
+    A5 --> M4
+    A6 --> M5
+    A7 --> M6
+    A8 --> M6
+    A8 --> M2
 ```
 
-## Descripción del Diagrama
+## Estado Actual vs Propuesto
 
-- **Flujo Normal**: Cliente se conecta al servidor via socket TCP.
-- **Amenazas**: Representadas como ramas que divergen del canal inseguro, mostrando posibles ataques.
-- **Mitigaciones**: Cadena de mejoras de seguridad que transforman el canal inseguro en uno seguro.
-- **Impactos**: Consecuencias de las amenazas, con flechas a las mitigaciones correspondientes.
-
-Este modelo proporciona una visión integral de la seguridad del sistema, identificando vulnerabilidades y proponiendo soluciones técnicas específicas para Java.
+| Aspecto | Estado actual | Propuesta |
+|---|---|---|
+| Cifrado de canal | TCP plano, datos en claro | SSLSocket con TLS 1.3 |
+| Autenticación de nodos | Ninguna, cualquier proceso puede conectarse | Certificados X.509 mutuos |
+| Autenticación de clientes | Solo nombre de usuario en texto | Tokens firmados |
+| Serialización | `ObjectInputStream` sin filtro | `ObjectInputFilter` con whitelist de clases `uber.shared.*` |
+| Protección DoS | Pool de 60 hilos, sin límite por IP | Rate limiting + límite de conexiones por IP |
+| Integridad de coordinación | Sin verificación de origen | Firma digital en ELECTION, COORDINATOR, REPLICAR_ESTADO |
