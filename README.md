@@ -212,14 +212,6 @@ En los logs de NODO_1 y NODO_2 debería aparecer:
 
 Los errores de negocio (~31% en ambos escenarios) son comportamiento esperado: 50 clientes compiten por 3 conductores simulados.
 
-## Documentación adicional
-
-- `coordinacion_lider_bully.md`: Detalle del algoritmo Bully, replicación y reenvío transparente.
-- `modelo_fallos.md`: Clasificación de fallos (crash, omisión, temporización) con matriz de detección y recuperación.
-- `modelo_seguridad.md`: Canales inseguros, amenazas y mitigaciones propuestas en Java.
-- `prueba_carga.md`: Resultados detallados de las pruebas de carga con análisis comparativo.
-- `diagramas_uml_final.md`: 9 diagramas UML en formato Mermaid (clases, secuencias, componentes, estados).
-
 ## Autores
 
 - Martín Ignacio Basulto Nazir
